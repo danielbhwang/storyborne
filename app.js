@@ -887,7 +887,7 @@ function screenPlayers(){
           el('span',{}, `${TRACK_INFO[tr].word} ${D.level}`), el('span',{}, `⭐ ${(D.stars||0) - (D.spent||0)}`), el('span',{}, `🏆 ${(D.trophies||[]).length}`),
           el('span',{}, `📖 ${wk.length} reads this week`), el('span',{}, `🕒 ${ago(lastPlayed(D))}`), el('span',{}, P.pin ? '🔒 PIN set' : '🔓 No PIN')),
         el('div',{class:'row pl-btns'},
-          el('button',{class:'btn small blue', onclick:()=>screenParent(id)}, '📊 Progress'),
+          el('button',{class:'btn small blue', onclick:()=>screenParent(id)}, '📊 Progress'), (typeof CURR !== 'undefined' ? el('button',{class:'btn small green', onclick:()=>v2Parent(id)}, '🧠 Skills') : null),
           el('button',{class:'btn small', onclick:()=>screenPlayerEdit(id)}, '✏️ Edit')))); };
   show(el('div',{class:'screen', style:'max-width:1000px'},
     el('div',{class:'row', style:'justify-content:space-between;margin-bottom:12px'},
@@ -943,7 +943,7 @@ function screenPlayerEdit(id){
       el('h3',{}, 'Reading track'), pick([['son', '🐲 ' + TRACK_INFO.son.name, TRACK_INFO.son.ages], ['daughter', '🐉 ' + TRACK_INFO.daughter.name, TRACK_INFO.daughter.ages]], track, v => track = v),
       id && track !== P.track ? null : null,
       el('h3',{}, 'Starter outfit'), pick([['girl','👗 Blossom','Pink dress & hair bow'], ['boy','🧢 Explorer','Blue jacket & red scarf']], style, v => style = v),
-      el('h3',{}, 'Story questions'), pick([['standard','🙂 Standard','Questions as written'], ['challenge','🧠 Challenge','Tricky choices, order of events, spot the fake']], quiz, v => quiz = v),
+      el('h3',{}, 'Story questions'), pick([['standard','🙂 Standard','Questions as written'], ['challenge','🧠 Challenge','Tricky choices, order of events, spot the fake. Chapter-book readers move up to Expert at Rank 5'], ['expert','🔥 Expert','Who said it, 4-event order, spot the changed detail, word meanings, all from memory']], quiz, v => quiz = v),
       el('h3',{}, 'Listening'), pick([['kind','👂 Extra forgiving','Best for young readers & quiet voices'], ['normal','🎯 Normal','Closer check of each word']], ear, v => ear = v),
       el('h3',{}, 'Kid PIN'), pin, el('p',{class:'muted'}, 'Kids type this after tapping their hero, so siblings don\'t play as each other. Forgot it? Set a new one here.'),
       id && P.pin ? el('button',{class:'btn small gray', onclick:()=>{ delete DB.players[id].pin; save(); msg.textContent = 'PIN removed.'; }}, 'Remove PIN') : null,
@@ -1814,7 +1814,8 @@ function onWordTap(i){
     p.status[i] = p.status[i] === 'miss' ? null : 'miss';
     beep('tap'); paintWords(); return;
   }
-  // listening mode: tap = hear the word (counts as helped)
+  // listening mode: tap = hear the word (counts as helped). Truesight shows chunks first.
+  if (truesightTap(p, i)) return;
   p.helped[i] = true; paintWords();
   const t = p.tokens[i];
   // just say the whole word, clearly (no sounding out)
@@ -2037,12 +2038,17 @@ function challengeQuiz(story){
   while (out.length < 5 && base.length > out.length){ const q = base.find(b => !keep.includes(b) && !out.some(o => o.q === b[0])); if (!q) break; out.push({ q:q[0], opts: shuffle(q[1].map((t, i) => ({ t, right: i === q[2] }))) }); }
   return out.slice(0, 5);
 }
-const quizLevelOf = id => { const P = playerOf(id); return P && P.quiz ? P.quiz : trackOf(id) === 'daughter' ? 'challenge' : 'standard'; };
+const quizLevelOf = id => { const P = playerOf(id), k = DB.kids[id], lv = k ? k.level : 1;
+  const q = P && P.quiz ? P.quiz : trackOf(id) === 'daughter' ? 'challenge' : 'standard';
+  return q === 'challenge' && trackOf(id) === 'daughter' && lv >= 5 ? 'expert' : q; };   // Gia: Challenge becomes Expert from Rank 5
 function screenQuiz(){
   const st = run.act.story;
   let qs = null;
-  if (quizLevelOf(kid) === 'challenge' && !run.opts.boss){ try { qs = challengeQuiz(st); } catch(e){ qs = null; } }
+  const lvl = quizLevelOf(kid);
+  if (lvl === 'expert' && !run.opts.boss){ try { qs = expertQuiz(st); } catch(e){ console.warn(e); qs = null; } }
+  if (!qs && lvl !== 'standard' && !run.opts.boss){ try { qs = challengeQuiz(st); } catch(e){ qs = null; } }
   if (!qs || qs.length < 3) qs = st.qs.slice(0, 5).map(([q, opts, ans]) => ({ q, opts: shuffle(opts.map((o,i)=>({ t:o, right:i===ans }))) }));
+  if (!qs.extra){ try { qs.extra = shuffle(expertExtras(st)).filter(x => !qs.some(y => y.q === x.q)); } catch(e){ qs.extra = []; } }
   run.quiz = { qs, i:0, correct:0 };
   renderQuestion();
 }
@@ -2057,13 +2063,15 @@ function renderQuestion(){
     const b = el('button',{class:'opt'}, el('span',{}, o.t),
       el('span',{class:'say', onclick:ev=>{ ev.stopPropagation(); say(o.t); }}, '🔊'));
     b.addEventListener('click', () => {
-      if (answered) return; answered = true;
-      trackQ(item.q, o.right);
+      if (answered) return;
+      if (!o.right && Q.frostArmed === item && !item.frostUsed){ item.frostUsed = true; trackQ(item.q, false); b.classList.add('wrong', 'frozen'); b.disabled = true; beep('tap'); fb.textContent = PW() === 'invisible' ? '👻 It missed you! You were invisible. Try again!' : '❄️ Frozen! Time stopped. Try again!'; fb.style.color = '#0369a1'; return; }
+      answered = true;
+      if (!item.frostUsed) trackQ(item.q, o.right);
       if (memory && !item.looked && o.right){ run.proofStars = (run.proofStars || 0) + 1; setTimeout(() => { fb.textContent += '  🧠 Memory bonus +1 ⭐'; }, 30); }
       if (memory) reveal(false);
-      if (o.right){ b.classList.add('right'); Q.correct++; beep('ok'); burst(); if (run.opts.boss) bossHud(true); fb.textContent = pick(['Yes! 🎉','You got it! ⭐','Awesome! 🙌','Correct! 🌟']); fb.style.color = 'var(--ok)'; startProof(o.t); }
+      if (o.right){ b.classList.add('right'); Q.correct++; powerOnAnswer(Q, true, fb); beep('ok'); burst(); if (run.opts.boss) bossHud(true); fb.textContent = pick(['Yes! 🎉','You got it! ⭐','Awesome! 🙌','Correct! 🌟']); fb.style.color = 'var(--ok)'; startProof(o.t); }
       else {
-        b.classList.add('wrong'); beep('bad'); fb.textContent = 'Good try! The answer is highlighted in green.'; fb.style.color = 'var(--bad)';
+        b.classList.add('wrong'); beep('bad'); fb.textContent = 'Good try! The answer is highlighted in green.'; fb.style.color = 'var(--bad)'; powerOnAnswer(Q, false, fb);
         [...opts.children].forEach((c, idx) => { if (item.opts[idx].right) c.classList.add('right'); });
       }
       nextBtn.classList.remove('hidden');
@@ -2101,7 +2109,7 @@ function renderQuestion(){
       : (st.emoji ? st.emoji + ' ' : '') + st.title,
     st.text, run.marks || (run.marks = {}));
   // Challenge mode: the story starts hidden. Answer from memory for a bonus star, or tap to look back.
-  const memory = quizLevelOf(kid) === 'challenge' && !run.opts.boss;
+  const memory = ['challenge','expert'].includes(quizLevelOf(kid)) && !run.opts.boss;
   const reveal = looked => { card.classList.remove('peek-hidden'); const c = card.querySelector('.peek-cover'); if (c) c.remove(); if (looked) item.looked = true; };
   if (memory){ card.classList.add('peek-hidden'); card.append(el('div',{class:'peek-cover'},
     el('div',{class:'peek-e'},'🧠'), el('b',{}, 'Answer from memory for +1 ⭐'),
@@ -2116,7 +2124,7 @@ function renderQuestion(){
         el('div',{class:'row', style:'align-items:flex-start'},
           el('p',{class:'q-text grow'}, item.q),
           el('button',{class:'btn small blue', onclick:()=>say(item.q)},'🔊')),
-        opts, fb, proofBox, el('div',{class:'row', style:'margin-top:10px'}, nextBtn))));
+        opts, (() => { try { return powerButton(Q, item, opts, card, fb, () => reveal(false)); } catch(e){ return null; } })(), fb, proofBox, el('div',{class:'row', style:'margin-top:10px'}, nextBtn))));
   show(s);
   if (TK === 'son'){ (async()=>{ await say(item.q); })(); }
 }
@@ -2366,6 +2374,7 @@ async function commitResults(stars, quiz){
     quiz: quiz ? quiz.c + '/' + quiz.t : null, missed:[...new Set(R.missed)].slice(0,20), stars, hasRec: r.clips.length > 0, ms: elapsed, book: a.book ? a.book.id : null };
   K.sessions.unshift(rec); K.sessions = K.sessions.slice(0, 200);
   if (r.clips.length) idb.put(r.sessionId, r.clips);
+  try { if (typeof v2StoryHook === 'function' && r.opts.mode === 'normal') v2StoryHook(r, R); } catch(e){ console.warn('v2 hook', e); }
 
   let levelMsg = null, levelUp = false, bookDone = null, bookMsg = null, bossUnlocked = false;
   if (r.opts.mode === 'normal'){
@@ -5102,7 +5111,8 @@ function heroSVG(size=200, override={}){
   const girl = heroKidKey() === 'daughter';
   if (!h.outfit) h.outfit = girl ? 'dress' : 'pants';
   const full = override.eq ? null : fullSetOn();
-  const helmOn = S('helmet').tier > 0;
+  const WZo = override.wiz || K.wiz || {}, hatOn = !!(WZo.hat && HAT_BY[WZo.hat]), robeOn = !!(WZo.robe && ROBE_BY[WZo.robe]), wandOn = !!(WZo.wandOn && WZo.wand);
+  const helmOn = S('helmet').tier > 0 && !hatOn;
   const u = 'h' + (++heroSeq), eye = h.eyes || EYE_COLORS[0];
   let s = `<svg viewBox="0 0 200 250" width="${size}" height="${size*1.25}" xmlns="http://www.w3.org/2000/svg" class="hero-svg">
   <defs><filter id="hglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
@@ -5134,6 +5144,7 @@ function heroSVG(size=200, override={}){
       <path d="M52 194 q8 6 18 0 q8 6 17 0 q9 6 17 0 q9 6 17 0 q8 6 17 0 q8 6 18 0" fill="none" stroke="${hem}" stroke-width="4"/><path d="M82 156 l-6 34 M100 156 v36 M118 156 l6 34" stroke="${C.tier ? C.sec : '#fff'}" stroke-width="2" opacity=".5"/>
       ${C.motif === 'petal' ? [[78,176],[100,182],[122,176]].map(([x,y]) => `<circle cx="${x}" cy="${y}" r="4" fill="#fff"/><circle cx="${x}" cy="${y}" r="1.8" fill="${C.gem}"/>`).join('') : ''}`; }
   s += gearPiece('belt', S('belt'), h);
+  if (robeOn) s += robeArt(WZo.robe, WZo.house);
   s += `<path d="M54 104 L146 104 L150 232 L50 232z" fill="url(#${u}v)" style="mix-blend-mode:multiply" opacity=".9"/>`;
   s += `<rect x="92" y="90" width="16" height="16" fill="${h.skin}" stroke="${INK}" stroke-width="3"/><path d="M92 92 h16 v6 q-8 4 -16 0z" fill="#7a3b2e" opacity=".2"/>`;
   s += gearPiece('shoulders', S('shoulders'), h);
@@ -5158,11 +5169,11 @@ function heroSVG(size=200, override={}){
   if (h.beard) s += `<path d="M70 70 q4 22 14 34 q8 26 16 34 q8 -8 16 -34 q10 -12 14 -34 q-6 14 -18 16 q-12 -6 -24 0 q-12 -2 -18 -16z" fill="${h.beardColor || '#f1f5f9'}" stroke="${INK}" stroke-width="2.5" stroke-linejoin="round"/><path d="M90 86 q10 -5 20 0" stroke="${INK}" stroke-width="2.5" fill="none" stroke-linecap="round"/>`;
   const bow = !helmOn && girl && h.bow !== false ? `<g transform="translate(${h.hairStyle === 'buns' ? 100 : 126} ${h.hairStyle === 'buns' ? 28 : 36}) rotate(18)"><path d="M0 0 l-16 -10 q-4 10 0 20z M0 0 l16 -10 q4 10 0 20z" fill="${S('chest').tier ? S('chest').gem : '#f472b6'}" stroke="${INK}" stroke-width="2.5" stroke-linejoin="round"/><circle r="5" fill="${S('chest').tier ? S('chest').trim : '#ec4899'}" stroke="${INK}" stroke-width="2"/></g>` : '';
   const shine = `<path d="M74 47 q9 -13 25 -15" stroke="#fff" stroke-width="4.5" opacity=".32" fill="none" stroke-linecap="round"/><path d="M104 32 q6 0 11 2" stroke="#fff" stroke-width="3" opacity=".25" fill="none" stroke-linecap="round"/>`;
-  s += helmOn ? gearPiece('helmet', S('helmet'), h) : hairFront(h) + shine + bow + (S('helmet').id === 'traveler' && override.showCap ? gearPiece('helmet', S('helmet'), h) : '');
+  s += hatOn ? hairFront(h) + shine + hatArt(WZo.hat, WZo.house) : helmOn ? gearPiece('helmet', S('helmet'), h) : hairFront(h) + shine + bow + (S('helmet').id === 'traveler' && override.showCap ? gearPiece('helmet', S('helmet'), h) : '');
   s += gearPiece('gloves', S('gloves'), h);
-  if ((h.weapon || 'sword') === 'sword' || h.weapon === 'laser') s += heroShield(S('chest'), girl);
+  if (!wandOn && ((h.weapon || 'sword') === 'sword' || h.weapon === 'laser')) s += heroShield(S('chest'), girl);
   const wpn = override.wpn !== undefined ? override.wpn : K.wpn;
-  s += wpn && LW_BY_ID[wpn] ? legendWeaponSVG(wpn) : gearPiece('weapon', S('weapon'), h);
+  s += wandOn ? wandArt(142, 170, 178, 104, WZo.wand.wood, WZo.wand.core, 6.5) : wpn && LW_BY_ID[wpn] ? legendWeaponSVG(wpn) : gearPiece('weapon', S('weapon'), h);
   return s + '</svg>';
 }
 function profileHero(k, size){ const keep = K; K = DB.kids[k]; try { return size ? riderNode(size) : heroNode(110); } finally { K = keep; } }
@@ -5263,6 +5274,7 @@ function screenArmory(){
   const prev = el('div',{class:'armory-prev'}, heroNode(230));
   const grid = el('div',{class:'armory-grid' + (armorySlot === 'legend' ? ' lw-grid' : '')});
   if (armorySlot === 'legend') legendGrid(grid);
+  else if (armorySlot === 'wizard') wizardWardrobe(grid);
   else armorySets().forEach(S => {
     const owned = hasPiece(S.id, armorySlot), on = G.eq[armorySlot] === S.id;
     const where = S.tier === 0 ? 'Starter gear' : BOSS_PIECES.includes(armorySlot) ? `Beat the Level ${S.tier} boss` : `Great reads at Level ${S.tier}`;
@@ -5285,7 +5297,8 @@ function screenArmory(){
     el('div',{class:'shop-layout'}, prev,
       el('div',{class:'grow'},
         el('div',{class:'tabs shop-tabs'}, ...GEAR_SLOTS.map(sl => el('button',{class:'tab' + (sl === armorySlot ? ' active' : ''), onclick:()=>{ armorySlot = sl; screenArmory(); }}, SLOT_ICON[sl] + ' ' + SLOT_LABEL[sl])),
-          el('button',{class:'tab lw-tab' + (armorySlot === 'legend' ? ' active' : ''), onclick:()=>{ armorySlot = 'legend'; screenArmory(); }}, '🌟 Legendary Weapons')),
+          el('button',{class:'tab lw-tab' + (armorySlot === 'legend' ? ' active' : ''), onclick:()=>{ armorySlot = 'legend'; screenArmory(); }}, '🌟 Legendary Weapons'),
+          el('button',{class:'tab ww-tab' + (armorySlot === 'wizard' ? ' active' : ''), onclick:()=>{ armorySlot = 'wizard'; screenArmory(); }}, '🧙 Wizard')),
         grid,
         el('div',{class:'card', style:'margin-top:16px'}, el('h2',{style:'margin-top:0'},'Gear sets'),
           el('p',{class:'muted'},'Wear all 8 pieces of one set to unlock its glowing set bonus and title!'), sets)))));
@@ -6209,9 +6222,35 @@ function pzSceneSVG(){
 }
 
 /* ----- screen ----- */
+
+/* ---- town-square power effects (one-shot CSS animations, removed afterwards) ---- */
+const PZM = { mode:null };
+function powerGemSVG(c){ return `<svg viewBox="0 0 72 80" width="72" height="80" xmlns="http://www.w3.org/2000/svg"><ellipse cx="36" cy="74" rx="20" ry="5" fill="#000" opacity=".25"/><circle cx="36" cy="34" r="30" fill="${c}" opacity=".3"/><path d="M36 6 L60 28 L36 70 L12 28Z" fill="${c}" stroke="#24141f" stroke-width="3.5" stroke-linejoin="round"/><path d="M12 28 H60 M36 6 L28 28 L36 70 L44 28Z" fill="none" stroke="#24141f" stroke-width="2" opacity=".55"/><path d="M22 24 L32 12" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".7"/></svg>`; }
+function pzPowerFx(world, id, x, y, left){
+  const ink = '#24141f', c = (POWERS[id] || {}).color || '#fff';
+  const fx = (cls, html, ms, dx = 0, dy = 0) => { const n = el('div',{class:'pzp ' + cls, style:`left:${x + dx}px;top:${y + dy}px;z-index:${Math.round(y) + 5}`, html}); world.append(n); setTimeout(() => n.remove(), ms); return n; };
+  const dir = left ? -1 : 1;
+  if (id === 'frost'){ fx('pzp-ring', `<svg viewBox="0 0 300 120" width="300" height="120"><ellipse cx="150" cy="60" rx="140" ry="50" fill="#e0f2fe" opacity=".85" stroke="#38bdf8" stroke-width="5"/><path d="M40 60 l30 -14 l-6 20 l40 -26 l-8 26 l44 -18 l-6 22 l40 -20 l-4 24 l36 -14" stroke="#7dd3fc" stroke-width="5" fill="none"/></svg>`, 2600, -150, -40);
+    for (let i = 0; i < 8; i++) fx('pzp-flake', '❄️', 2200, (Math.random() - .5) * 260, -180 - Math.random() * 80).style.animationDelay = (i * .08) + 's'; }
+  if (id === 'storm'){ fx('pzp-cloud', `<svg viewBox="0 0 220 150" width="220" height="150"><path d="M30 70 Q20 36 54 34 Q66 6 104 16 Q140 0 160 32 Q200 30 196 66 Q206 88 180 92 H44 Q14 92 30 70Z" fill="#64748b" stroke="${ink}" stroke-width="4"/><path d="M104 92 L88 120 H104 L94 148 L126 110 H110 L120 92Z" fill="#facc15" stroke="${ink}" stroke-width="3"/>${[50,70,140,160,180].map((rx, i) => `<path class="pzp-drop" style="animation-delay:${i * .12}s" d="M${rx} 96 l-6 16" stroke="#38bdf8" stroke-width="5" stroke-linecap="round"/>`).join('')}</svg>`, 3000, -110, -290);
+    fx('pzp-flash', '', 700, -400, -400); }
+  if (id === 'laser'){ fx('pzp-laser', `<svg viewBox="0 0 420 40" width="420" height="40"><path d="M0 12 H420 M0 28 H420" stroke="#ef4444" stroke-width="9" stroke-linecap="round"/><path d="M0 12 H420 M0 28 H420" stroke="#fee2e2" stroke-width="3"/></svg>`, 1200, left ? -430 : 10, -168).style.transformOrigin = left ? 'right center' : 'left center';
+    fx('pzp-boom', '💥', 1300, dir * 420 - 30, -190); }
+  if (id === 'sorcery'){ const f = fx('pzp-fireball', `<svg viewBox="0 0 90 90" width="90" height="90"><circle cx="45" cy="45" r="30" fill="#f97316" stroke="${ink}" stroke-width="4"/><circle cx="45" cy="45" r="16" fill="#fde68a"/><path d="M15 40 Q-6 30 4 14 Q14 28 24 26 Q20 8 38 2 Q36 18 48 18" fill="#fb923c" stroke="${ink}" stroke-width="3"/></svg>`, 1500, dir * 20 - 45, -200); f.style.setProperty('--dx', dir * 250 + 'px');
+    setTimeout(() => { fx('pzp-boom big', '💥', 1200, dir * 270 - 40, -210); for (let i = 0; i < 4; i++) fx('pzp-bolt', '⚡', 1100, dir * 270 - 40 + (Math.random() - .5) * 160, -230 + (Math.random() - .5) * 120); }, 900); }
+  if (id === 'light'){ fx('pzp-halo', `<svg viewBox="0 0 320 320" width="320" height="320"><defs><radialGradient id="pzl"><stop offset="0" stop-color="#fffbe6"/><stop offset=".5" stop-color="#fde047" stop-opacity=".6"/><stop offset="1" stop-color="#fde047" stop-opacity="0"/></radialGradient></defs><circle cx="160" cy="160" r="160" fill="url(#pzl)"/>${[0,30,60,90,120,150,180,210,240,270,300,330].map(a => `<path d="M160 6 L168 70 L152 70Z" fill="#fff7c2" transform="rotate(${a} 160 160)"/>`).join('')}</svg>`, 2600, -160, -240); }
+  if (id === 'totem'){ const t = el('div',{class:'pz-totem', style:`left:${x + 60}px;top:${y - 150}px;z-index:${Math.round(y)}`, html:`<svg viewBox="0 0 60 150" width="60" height="150"><ellipse cx="30" cy="144" rx="24" ry="5" fill="#000" opacity=".25"/><rect x="14" y="20" width="32" height="124" rx="4" fill="#b45309" stroke="${ink}" stroke-width="3"/><path d="M0 34 L14 28 L14 44Z M60 34 L46 28 L46 44Z" fill="#fde68a" stroke="${ink}" stroke-width="2.5"/><circle cx="23" cy="36" r="4" fill="${ink}"/><circle cx="37" cy="36" r="4" fill="${ink}"/><path d="M22 50 h16 M14 64 h32 M14 104 h32" stroke="${ink}" stroke-width="3"/><circle cx="23" cy="80" r="5" fill="#fff"/><circle cx="37" cy="80" r="5" fill="#fff"/><path d="M20 92 q10 7 20 0" stroke="${ink}" stroke-width="3" fill="none"/><path d="M14 20 L30 2 L46 20Z" fill="#16a34a" stroke="${ink}" stroke-width="3"/></svg>`});
+    world.querySelectorAll('.pz-totem').forEach(o => o.remove()); world.append(t); fx('pzp-halo small', `<svg viewBox="0 0 200 200" width="200" height="200"><circle cx="100" cy="100" r="90" fill="#fbbf24" opacity=".35"/></svg>`, 1600, -40, -230); }
+  if (id === 'truesight'){ fx('pzp-sweep', `<svg viewBox="0 0 600 600" width="600" height="600"><circle cx="300" cy="300" r="290" fill="none" stroke="#f59e0b" stroke-width="10" stroke-dasharray="30 20"/><circle cx="300" cy="300" r="200" fill="#f59e0b" opacity=".12"/></svg>`, 2000, -300, -370);
+    fx('pzp-eye', powerEmblem('truesight', 90), 1800, -45, -270); }
+  if (id === 'sky'){ for (let i = 0; i < 6; i++) fx('pzp-flake', '🪶', 1800, (Math.random() - .5) * 180, -160 - Math.random() * 60).style.animationDelay = (i * .1) + 's'; }
+  if (id === 'blink'){ fx('pzp-portal', `<svg viewBox="0 0 160 70" width="160" height="70"><ellipse cx="80" cy="35" rx="76" ry="30" fill="#ec4899" opacity=".35" stroke="#ec4899" stroke-width="5"/><ellipse cx="80" cy="35" rx="46" ry="16" fill="#fbcfe8" opacity=".8"/></svg>`, 900, -80, -40); }
+  if (id === 'invisible'){ fx('pzp-flake', '👻', 1600, -20, -200); }
+}
+
 function screenTownSquare(){
   if (!K.hero) return screenHeroCreate(screenTownSquare);
-  pzSubscribe();
+  pzSubscribe(); PZM.mode = null;
   PZ.pos = Object.assign({ x:760, y:760 }, K.plazaPos || {});
   const world = el('div',{class:'plaza-world', html: pzSceneSVG()});
   const view = el('div',{class:'plaza-view'});
@@ -6274,8 +6313,10 @@ function screenTownSquare(){
   let walkT = null, walkId = 0;
   const walkTo = (x, y, then) => {
     x = Math.max(50, Math.min(PZ_W - 50, x)); y = Math.max(150, Math.min(PZ_H - 20, y));
-    const dc = Math.hypot(x - PZ_C.x, y - PZ_C.y); if (dc < 84){ const f = 84 / (dc || 1); x = PZ_C.x + (x - PZ_C.x)*f; y = PZ_C.y + (y - PZ_C.y)*f + (dc ? 0 : 84); }
-    const d = Math.hypot(x - PZ.pos.x, y - PZ.pos.y), dur = Math.max(.2, d / 260), id = ++walkId;
+    const fly = PZM.mode === 'sky', tp = PZM.mode === 'blink';
+    const dc = Math.hypot(x - PZ_C.x, y - PZ_C.y); if (dc < 84 && !fly){ const f = 84 / (dc || 1); x = PZ_C.x + (x - PZ_C.x)*f; y = PZ_C.y + (y - PZ_C.y)*f + (dc ? 0 : 84); }
+    const d = Math.hypot(x - PZ.pos.x, y - PZ.pos.y), dur = tp ? .01 : Math.max(.2, d / (fly ? 640 : 260)), id = ++walkId;
+    if (tp){ pzPowerFx(world, 'blink', PZ.pos.x, PZ.pos.y); pzPowerFx(world, 'blink', x, y); me.classList.remove('blink-in'); void me.offsetWidth; me.classList.add('blink-in'); beep('star'); }
     me.style.transitionDuration = dur + 's';
     if (Math.abs(x - PZ.pos.x) > 4) me.classList.toggle('flip', x < PZ.pos.x);
     me.classList.add('walking'); put(me, x, y); camera(x, y);
@@ -6385,6 +6426,35 @@ function screenTownSquare(){
     el('div',{class:'topbar'}, el('button',{class:'btn small', onclick:() => leave(() => screenHome())}, '← Back'), el('h1',{class:'title'}, '🏰 Storybrook Square'), el('div')),
     frame, status));
   frame.append(bar);
+  // ---- special power in town: big effect around the hero, movement powers change how you travel,
+  //      and once a day the power uncovers a hidden Power Gem nearby (+3 ⭐)
+  if (PW()){
+    const pid = PW(), PWR = POWERS[pid], toggles = { sky:'Flying', blink:'Teleport', invisible:'Invisible' };
+    const gem = () => {
+      if (K.pzGem === todayStr() || world.querySelector('.pz-gem')) return;
+      const a = Math.random() * Math.PI * 2, r = 260 + Math.random() * 180;
+      const gx = Math.max(80, Math.min(PZ_W - 80, PZ.pos.x + Math.cos(a) * r)), gy = Math.max(220, Math.min(PZ_H - 60, PZ.pos.y + Math.sin(a) * r));
+      const g = el('div',{class:'pz-gem', style:`left:${gx - 36}px;top:${gy - 60}px;z-index:${Math.round(gy)};--pc:${PWR.color}`, html:powerGemSVG(PWR.color)});
+      g.onclick = e => { e.stopPropagation(); walkTo(gx, gy + 10, () => setTimeout(() => {
+        if (K.pzGem === todayStr()) return; K.pzGem = todayStr(); K.stars += 3; save(); g.remove();
+        beep('level'); confetti(50); bubble(me, '+3⭐', true); say(`You found a Power Gem! Three stars!`); }, PZM.mode === 'blink' ? 200 : 700)); };
+      world.append(g); setTimeout(() => say(`Your ${PWR.name} power uncovered a hidden Power Gem! Go get it!`), 900);
+    };
+    const btn = el('button',{class:'pz-power', style:`--pc:${PWR.color}`, onclick:() => {
+      closePop();
+      if (toggles[pid]){
+        PZM.mode = PZM.mode === pid ? null : pid;
+        me.classList.toggle('flying', PZM.mode === 'sky'); me.classList.toggle('ghost', PZM.mode === 'invisible');
+        btn.querySelector('b').textContent = toggles[pid] + (PZM.mode ? ': ON' : ': OFF');
+        if (PZM.mode){ pzPowerFx(world, pid, PZ.pos.x, PZ.pos.y, me.classList.contains('flip')); beep('star'); say(pid === 'sky' ? 'You can fly! Tap anywhere to soar there.' : pid === 'blink' ? 'Teleport ready! Tap anywhere to blink there.' : 'You are invisible!'); emote(pid === 'sky' ? '🪽' : pid === 'blink' ? '✨' : '👻', PWR.name); gem(); }
+        return;
+      }
+      pzPowerFx(world, pid, PZ.pos.x, PZ.pos.y, me.classList.contains('flip')); beep('level');
+      emote({ truesight:'👁️', frost:'❄️', storm:'🌪️', laser:'🔆', totem:'🗿', light:'🌟', sorcery:'🔥' }[pid] || '⚡', PWR.name);
+      gem();
+    }}, el('span',{html:powerEmblem(pid, 34)}), el('b',{}, toggles[pid] ? toggles[pid] + ': OFF' : PWR.name));
+    frame.append(btn);
+  }
   const fx = el('div',{class:'pz-fx'});
   for (let i = 0; i < 16; i++){ const leaf = el('span',{class:'pz-leaf ' + (i % 3 === 0 ? 'petal' : 'maple')}); leaf.style.left = (Math.random()*100) + '%'; leaf.style.animationDelay = (-Math.random()*14) + 's'; leaf.style.animationDuration = (9 + Math.random()*8) + 's'; leaf.style.setProperty('--sway', (20 + Math.random()*60) + 'px'); fx.append(leaf); }
   view.after(fx);
@@ -6472,6 +6542,9 @@ function screenPractice(){
   show(el('div',{class:'screen'},
     el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()},'← Back'), el('h1',{class:'title'},'🎯 Practice'), el('div')),
     el('div',{class:'cards'},
+      V2 && K ? (() => { const lm = LM(), placed = !!lm.placedAt, plan = placed ? CURR.planLesson(lm, [], { recent:K.v2recent }) : null;
+        return card('🗺️', 'Skill Quest', placed ? (plan.objectives.length ? 'Today: ' + plan.objectives.map(o => o.kid).join(' + ') + '.' : 'Training picked just for you.') : 'Take a quick Reading Check so every quest fits you.',
+          placed ? '⚔️ Start Quest' : '🧭 Reading Check', v2Start, 'v2-quest-card'); })() : null,
       card('🧠', 'Skills', 'Sound and word lessons, one step at a time.', '🧠 Skills', () => { ensureSkillStart(); screenPath(); }),
       card('🎯', 'Tricky Words', tricky ? `${tricky} word${tricky === 1 ? '' : 's'} to practice from your reading.` : 'Words you miss while reading show up here.', '🎯 Words', screenWords),
       card('✏️', 'Spelling', TK === 'daughter' ? 'Hear a word, then type it.' : 'Hear a word, then build it with letter tiles.', '✏️ Spell', () => TK === 'daughter' ? startSpellCheck() : startSpelling()))));
@@ -7233,13 +7306,1181 @@ function mountEpicBg(){
   let bg = document.getElementById('epic-bg');
   if (bg && bg.dataset.phase === ph) return;
   if (bg) bg.remove();
-  bg = el('div',{id:'epic-bg', 'data-phase': ph, class: (night ? 'night ' : '') + 'ph-' + ph, html: titleSceneSVG(night)});
+  bg = el('div',{id:'epic-bg', 'data-phase': ph, class: (night ? 'night great-hall ' : '') + 'ph-' + ph, html: night ? greatHallSVG() : titleSceneSVG(night)});
   if (!night && PHASE[ph].tint) bg.append(el('div',{class:'tod-tint', style:`background:${PHASE[ph].tint};opacity:${PHASE[ph].tintOp}`}));
   bg.append(el('div',{class:'eb-shade'}));
   document.body.prepend(bg);
 }
+/* ======================= WIZARD SCHOOL (original): houses, wands, owl mail, Great Hall, robes & hats =======================
+   Starhaven Academy of Reading Magic. Everything here is original: names, houses, crests and art.
+   Data lives in K.wiz. House points = stars earned from reading this week (derived from K.sessions, nothing extra to keep in sync). */
+const HOUSES = {
+  emberwing:  { id:'emberwing',  name:'Emberwing',  trait:'brave',   icon:'🐉', prim:'#9f1d1d', sec:'#f59e0b', dark:'#4c0b0b', motto:'Courage lights the way' },
+  tidecaller: { id:'tidecaller', name:'Tidecaller', trait:'kind',    icon:'🌊', prim:'#1e3a8a', sec:'#cbd5e1', dark:'#0b1a45', motto:'Kindness flows like water' },
+  starwatch:  { id:'starwatch',  name:'Starwatch',  trait:'curious', icon:'🦉', prim:'#4c1d95', sec:'#e9d5ff', dark:'#230b4d', motto:'Wonder sees the farthest' },
+  rootheart:  { id:'rootheart',  name:'Rootheart',  trait:'loyal',   icon:'🌳', prim:'#14532d', sec:'#d4a017', dark:'#082a16', motto:'Together we grow strong' }
+};
+const HOUSE_IDS = Object.keys(HOUSES);
+const SORT_QS = [
+  ['Pick a door to open.', ['🔥 A door glowing with warm fire','🌊 A door with waves splashing on it','✨ A door covered in twinkling stars','🌳 A door made of a living tree']],
+  ['A friend is stuck. What do you do?', ['Rush in to help right away','Stay calm and make them feel better','Think up a clever plan','Stay by their side until it is fixed']],
+  ['Pick a magic pet.', ['🐲 A baby dragon','🐢 A glowing sea turtle','🦉 A wise little owl','🦊 A forest fox']],
+  ['What sounds most fun?', ['Climbing the tallest tower','Helping a lost creature find home','Reading a secret book','Building a fort with friends']],
+  ['Choose a treasure.', ['🗡️ A sword of fire','🐚 A shell that sings','🔭 A telescope that sees far stars','🌱 A seed that grows a tree house']]
+];
+const WAND_WOODS = [
+  { id:'oak',      name:'Oak',      col:'#8b5a2b', dark:'#5b3a1a', cost:0,  desc:'Strong and steady' },
+  { id:'willow',   name:'Willow',   col:'#cdb88e', dark:'#8a7650', cost:30, desc:'Bendy and gentle' },
+  { id:'cherry',   name:'Cherry',   col:'#a3402e', dark:'#5e2016', cost:30, desc:'Bold and bright' },
+  { id:'birch',    name:'Birch',    col:'#f1ede4', dark:'#3f3f46', cost:40, desc:'Pale with dark marks', spots:true },
+  { id:'ebony',    name:'Ebony',    col:'#2b2b30', dark:'#09090b', cost:50, desc:'Dark as midnight' },
+  { id:'starwood', name:'Starwood', col:'#4f46e5', dark:'#1e1b4b', cost:80, desc:'Grown under falling stars', spark:true }
+];
+const WAND_CORES = [
+  { id:'starlight',   name:'Starlight',    glow:'#fde68a', cost:0,  desc:'A spark of a star' },
+  { id:'dragonscale', name:'Dragon Scale', glow:'#fb923c', cost:30, desc:'Warm as dragon fire' },
+  { id:'moonstone',   name:'Moonstone',    glow:'#93c5fd', cost:30, desc:'Cool moon magic' },
+  { id:'fairydust',   name:'Fairy Dust',   glow:'#f9a8d4', cost:40, desc:'Giggly and sparkly' },
+  { id:'stormglass',  name:'Storm Glass',  glow:'#a5f3fc', cost:50, desc:'Crackles like lightning' },
+  { id:'sunheart',    name:'Sunheart',     glow:'#fef08a', cost:80, desc:'The heart of the sunrise', big:true }
+];
+const WOOD_BY = Object.fromEntries(WAND_WOODS.map(w => [w.id, w])), CORE_BY = Object.fromEntries(WAND_CORES.map(c => [c.id, c]));
+const ROBES = [
+  { id:'house',    name:'House Robe',     cost:0,  house:true },
+  { id:'midnight', name:'Midnight Robe',  cost:40, prim:'#111827', sec:'#9ca3af' },
+  { id:'starry',   name:'Starry Robe',    cost:60, prim:'#1e1b4b', sec:'#fde68a', stars:true },
+  { id:'snowy',    name:'Snowfall Robe',  cost:60, prim:'#e5e7eb', sec:'#60a5fa' },
+  { id:'royal',    name:'Royal Robe',     cost:80, prim:'#581c87', sec:'#fbbf24', stars:true }
+];
+const HATS = [
+  { id:'house',    name:'House Hat',      cost:0,  house:true },
+  { id:'classic',  name:'Classic Hat',    cost:25, prim:'#6d28d9', sec:'#fbbf24' },
+  { id:'starry',   name:'Starry Hat',     cost:40, prim:'#1e1b4b', sec:'#fde68a', stars:true },
+  { id:'crescent', name:'Moon Hat',       cost:50, prim:'#0f172a', sec:'#e2e8f0', moon:true },
+  { id:'flower',   name:'Blossom Hat',    cost:40, prim:'#be185d', sec:'#fbcfe8', flower:true }
+];
+const ROBE_BY = Object.fromEntries(ROBES.map(r => [r.id, r])), HAT_BY = Object.fromEntries(HATS.map(h => [h.id, h]));
+function WZ(k){ const kk = k || K; kk.wiz = Object.assign({ house:null, woods:[], cores:[], wand:null, wandOn:false, robes:[], hats:[], robe:null, hat:null, letters:[], accept:false, lastWeek:null, cups:{} }, kk.wiz || {}); return kk.wiz; }
+const wizColors = (item, house) => item && item.house ? (HOUSES[house] ? { prim:HOUSES[house].prim, sec:HOUSES[house].sec } : { prim:'#4c1d95', sec:'#fbbf24' }) : item;
+const wStar = (x, y, r, c) => { let p = ''; for (let i = 0; i < 10; i++){ const a = Math.PI / 5 * i - Math.PI / 2, rr = i % 2 ? r * .45 : r; p += (i ? 'L' : 'M') + (x + Math.cos(a) * rr).toFixed(1) + ' ' + (y + Math.sin(a) * rr).toFixed(1); } return `<path d="${p}Z" fill="${c}"/>`; };
+
+/* ---------- art: wand, robe, hat (drawn into heroSVG's 200×250 space) ---------- */
+function wandArt(x1, y1, x2, y2, woodId, coreId, wpx){
+  const W = WOOD_BY[woodId] || WAND_WOODS[0], C = CORE_BY[coreId] || WAND_CORES[0], w = wpx || 6;
+  const dx = x2 - x1, dy = y2 - y1, L = Math.hypot(dx, dy), nx = -dy / L, ny = dx / L;
+  const P = (t, half) => [x1 + dx * t + nx * half, y1 + dy * t + ny * half];
+  const poly = (t0, t1, h0, h1) => { const a = P(t0, h0), b = P(t1, h1), c = P(t1, -h1), d = P(t0, -h0); return `M${a[0].toFixed(1)} ${a[1].toFixed(1)} L${b[0].toFixed(1)} ${b[1].toFixed(1)} L${c[0].toFixed(1)} ${c[1].toFixed(1)} L${d[0].toFixed(1)} ${d[1].toFixed(1)}Z`; };
+  const tip = P(1, 0), ink = '#24141f';
+  let s = `<circle cx="${tip[0]}" cy="${tip[1]}" r="${w * (C.big ? 3.4 : 2.6)}" fill="${C.glow}" opacity=".35"/><circle cx="${tip[0]}" cy="${tip[1]}" r="${w * 1.5}" fill="${C.glow}" opacity=".55"/>`;
+  s += `<path d="${poly(0, 1, w * .62, w * .28)}" fill="${W.col}" stroke="${ink}" stroke-width="${w * .38}" stroke-linejoin="round"/>`;
+  s += `<path d="${poly(0, .34, w * .78, w * .66)}" fill="${W.dark}" stroke="${ink}" stroke-width="${w * .38}" stroke-linejoin="round"/>`;   // grip
+  [.1, .2, .3].forEach(t => { const a = P(t, w * .72), b = P(t, -w * .72); s += `<path d="M${a[0].toFixed(1)} ${a[1].toFixed(1)} L${b[0].toFixed(1)} ${b[1].toFixed(1)}" stroke="${W.col}" stroke-width="${w * .22}" opacity=".7"/>`; });
+  if (W.spots) [.45, .6, .75].forEach((t, i) => { const a = P(t, (i % 2 ? 1 : -1) * w * .15); s += `<ellipse cx="${a[0]}" cy="${a[1]}" rx="${w * .3}" ry="${w * .14}" fill="${W.dark}"/>`; });
+  if (W.spark) [.5, .72].forEach(t => { const a = P(t, 0); s += wStar(a[0], a[1], w * .32, '#e0e7ff'); });
+  const hl = P(.4, w * .2), hl2 = P(.92, w * .1);
+  s += `<path d="M${hl[0].toFixed(1)} ${hl[1].toFixed(1)} L${hl2[0].toFixed(1)} ${hl2[1].toFixed(1)}" stroke="#fff" stroke-width="${w * .18}" opacity=".45" stroke-linecap="round"/>`;
+  s += wStar(tip[0], tip[1], w * 1.25, '#fff') + wStar(tip[0], tip[1], w * .7, C.glow);
+  return s;
+}
+function robeArt(robeId, house){
+  const R = wizColors(ROBE_BY[robeId], house); if (!R) return ''; const ink = '#24141f', dk = shade(R.prim, -.35);
+  let s = `<path d="M64 100 L78 110 L66 168 L40 162 Z" fill="${R.prim}" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/><path d="M40 162 L66 168" stroke="${R.sec}" stroke-width="4"/>
+    <path d="M136 100 L122 110 L134 168 L160 162 Z" fill="${R.prim}" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/><path d="M160 162 L134 168" stroke="${R.sec}" stroke-width="4"/>
+    <path d="M66 100 Q56 150 48 230 L84 230 Q88 160 95 110 Z" fill="${R.prim}" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M134 100 Q144 150 152 230 L116 230 Q112 160 105 110 Z" fill="${R.prim}" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M95 110 Q88 160 84 230 M105 110 Q112 160 116 230" stroke="${R.sec}" stroke-width="4" fill="none"/>
+    <path d="M70 120 Q64 170 60 222 M130 120 Q136 170 140 222" stroke="${dk}" stroke-width="2.5" fill="none" opacity=".6"/>
+    <path d="M66 100 L95 110 L100 124 L105 110 L134 100 L128 96 L100 108 L72 96Z" fill="${R.sec}" stroke="${ink}" stroke-width="2.5" stroke-linejoin="round"/>`;
+  if (R.stars) [[58,190],[70,150],[140,170],[130,206],[56,214],[144,140]].forEach(([x,y]) => s += wStar(x, y, 4, R.sec));
+  if (ROBE_BY[robeId] && ROBE_BY[robeId].house && HOUSES[house]) s += `<g transform="translate(122 128) scale(.16)">${crestInner(house)}</g>`;
+  return s;
+}
+function hatArt(hatId, house){
+  const H = wizColors(HAT_BY[hatId], house); if (!H) return ''; const ink = '#24141f', dk = shade(H.prim, -.3);
+  let s = `<path d="M58 46 Q100 58 142 46 Q150 40 140 36 Q100 46 60 36 Q50 40 58 46Z" fill="${dk}" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M70 40 Q78 24 94 12 Q110 2 128 4 Q114 10 112 20 Q118 30 130 40 Q100 48 70 40Z" fill="${H.prim}" stroke="${ink}" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M72 36 Q100 44 128 36 L130 40 Q100 48 70 40Z" fill="${H.sec}" stroke="${ink}" stroke-width="2"/>
+    <path d="M90 18 Q104 8 122 6" stroke="#fff" stroke-width="2.5" opacity=".3" fill="none" stroke-linecap="round"/>`;
+  if (H.stars) [[88,28],[104,18],[116,30]].forEach(([x,y]) => s += wStar(x, y, 3.6, H.sec));
+  if (H.moon) s += `<path d="M98 16 a8 8 0 1 0 8 14 a6 6 0 1 1 -8 -14z" fill="${H.sec}" stroke="${ink}" stroke-width="1.5"/>`;
+  if (H.flower) s += `<g transform="translate(118 36)">${[0,72,144,216,288].map(a => `<ellipse cx="0" cy="-5" rx="3.4" ry="5" fill="${H.sec}" stroke="${ink}" stroke-width="1" transform="rotate(${a})"/>`).join('')}<circle r="3" fill="#facc15" stroke="${ink}" stroke-width="1"/></g>`;
+  if (HAT_BY[hatId] && HAT_BY[hatId].house && HOUSES[house]) s += `<g transform="translate(92 22) scale(.1)">${crestInner(house)}</g>`;
+  return s;
+}
+/* crest: shield in house colours with an original emblem, drawn in a 200×220 box */
+function crestInner(id){
+  const H = HOUSES[id] || HOUSES.starwatch, ink = '#24141f';
+  let s = `<path d="M100 6 L186 30 Q190 130 100 214 Q10 130 14 30 Z" fill="${H.prim}" stroke="${H.sec}" stroke-width="10" stroke-linejoin="round"/>
+    <path d="M100 6 L186 30 Q190 130 100 214 Q10 130 14 30 Z" fill="none" stroke="${ink}" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M100 24 L170 42 Q172 124 100 192 Z" fill="#000" opacity=".14"/>`;
+  const c = H.sec;
+  if (id === 'emberwing') s += `<path d="M100 60 Q70 70 52 52 Q56 86 82 96 Q60 110 58 138 Q80 120 100 124 Q120 120 142 138 Q140 110 118 96 Q144 86 148 52 Q130 70 100 60Z" fill="${c}" stroke="${ink}" stroke-width="4" stroke-linejoin="round"/><path d="M100 124 Q92 150 100 170 Q108 150 100 124Z" fill="${c}" stroke="${ink}" stroke-width="3.5"/><circle cx="100" cy="84" r="9" fill="${H.dark}"/>`;
+  if (id === 'tidecaller') s += `<path d="M40 120 Q60 96 80 120 Q100 144 120 120 Q140 96 160 120 L160 140 Q140 116 120 140 Q100 164 80 140 Q60 116 40 140Z" fill="${c}" stroke="${ink}" stroke-width="3.5"/><path d="M52 84 Q72 60 92 84 Q112 108 132 84 Q148 66 160 78" fill="none" stroke="${c}" stroke-width="12" stroke-linecap="round"/><circle cx="148" cy="62" r="8" fill="${c}"/>`;
+  if (id === 'starwatch') s += `<ellipse cx="100" cy="104" rx="46" ry="52" fill="${c}" stroke="${ink}" stroke-width="4"/><circle cx="82" cy="94" r="15" fill="#fff" stroke="${ink}" stroke-width="3"/><circle cx="118" cy="94" r="15" fill="#fff" stroke="${ink}" stroke-width="3"/><circle cx="82" cy="94" r="7" fill="${H.dark}"/><circle cx="118" cy="94" r="7" fill="${H.dark}"/><path d="M94 110 L100 122 L106 110Z" fill="#f59e0b" stroke="${ink}" stroke-width="2.5"/><path d="M62 64 L74 80 M138 64 L126 80" stroke="${ink}" stroke-width="6" stroke-linecap="round"/>${wStar(100, 46, 12, c)}`;
+  if (id === 'rootheart') s += `<circle cx="100" cy="86" r="42" fill="${c}" stroke="${ink}" stroke-width="4"/><circle cx="74" cy="100" r="22" fill="${c}" stroke="${ink}" stroke-width="4"/><circle cx="126" cy="100" r="22" fill="${c}" stroke="${ink}" stroke-width="4"/><path d="M92 118 L90 160 Q80 168 70 170 L130 170 Q120 168 110 160 L108 118Z" fill="${H.dark}" stroke="${ink}" stroke-width="4" stroke-linejoin="round"/><path d="M90 160 Q76 152 66 156 M110 160 Q124 152 134 156" stroke="${ink}" stroke-width="4" fill="none"/>`;
+  return s;
+}
+const crestSVG = (id, size) => `<svg viewBox="0 0 200 220" width="${size}" height="${size * 1.1}" xmlns="http://www.w3.org/2000/svg">${crestInner(id)}</svg>`;
+
+/* ---------- Great Hall (static, no animation: fast on old iPads) ---------- */
+function greatHallSVG(){
+  let r = 7; const rnd = () => (r = (r * 16807) % 2147483647) / 2147483647;
+  let s = `<svg class="ts-svg gh-svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg"><defs>
+    <linearGradient id="ghCeil" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#070b24"/><stop offset=".7" stop-color="#1b1f4d"/><stop offset="1" stop-color="#2c2560"/></linearGradient>
+    <linearGradient id="ghWall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3150"/><stop offset="1" stop-color="#1a1426"/></linearGradient>
+    <linearGradient id="ghFloor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b2a22"/><stop offset="1" stop-color="#1a110d"/></linearGradient>
+    <linearGradient id="ghTable" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7c4a26"/><stop offset="1" stop-color="#4a2a14"/></linearGradient>
+    <radialGradient id="ghGlow"><stop offset="0" stop-color="#ffd27a" stop-opacity=".55"/><stop offset="1" stop-color="#ffd27a" stop-opacity="0"/></radialGradient>
+    <radialGradient id="ghWin" cx="50%" cy="40%" r="60%"><stop offset="0" stop-color="#c7d8ff"/><stop offset="1" stop-color="#4b5fa8"/></radialGradient></defs>`;
+  s += `<rect width="1600" height="1000" fill="url(#ghWall)"/>`;
+  // starry enchanted ceiling (vault)
+  s += `<path d="M0 0 H1600 V250 Q800 120 0 250Z" fill="url(#ghCeil)"/>`;
+  for (let i = 0; i < 90; i++){ const x = rnd() * 1600, y = rnd() * 220 * (1 - Math.abs(x - 800) / 1600); s += `<circle cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" r="${(rnd() * 1.8 + .6).toFixed(1)}" fill="#fff" opacity="${(rnd() * .6 + .4).toFixed(2)}"/>`; }
+  s += wStar(380, 70, 9, '#fff7d6') + wStar(1220, 52, 11, '#fff7d6') + wStar(820, 40, 7, '#fff7d6');
+  // ribs of the vault
+  [-600, -300, 0, 300, 600].forEach(o => s += `<path d="M${800 + o * 2.2} 0 Q${800 + o * .9} 160 ${800 + o * .55} 250" stroke="#5a4a74" stroke-width="10" fill="none" opacity=".7"/>`);
+  // far wall with big arched window
+  s += `<rect x="520" y="230" width="560" height="300" fill="#2a2240"/><path d="M700 520 V330 Q800 230 900 330 V520Z" fill="url(#ghWin)" stroke="#8b7aa8" stroke-width="8"/>
+    <path d="M800 260 V520 M700 400 H900 M745 300 V520 M855 300 V520" stroke="#3a2f55" stroke-width="5"/>
+    <g transform="translate(800 400)"><path d="M-40 0 Q-20 -10 0 0 Q20 -10 40 0 V30 Q20 20 0 30 Q-20 20 -40 30Z" fill="#fbbf24" stroke="#5b3a1a" stroke-width="3"/>${wStar(0, -26, 16, '#fff7d6')}</g>`;
+  // side walls in perspective with tall windows
+  s += `<path d="M0 250 L520 230 L520 530 L0 760Z" fill="#2f2744"/><path d="M1600 250 L1080 230 L1080 530 L1600 760Z" fill="#2f2744"/>`;
+  [[90, 280, 70, 300], [270, 268, 54, 230], [410, 258, 40, 180]].forEach(([x, y, w, h]) => {
+    s += `<path d="M${x} ${y + h} V${y + w * .6} Q${x + w / 2} ${y - w * .3} ${x + w} ${y + w * .6} V${y + h}Z" fill="url(#ghWin)" opacity=".75" stroke="#5a4a74" stroke-width="5"/>`;
+    const X = 1600 - x - w; s += `<path d="M${X} ${y + h} V${y + w * .6} Q${X + w / 2} ${y - w * .3} ${X + w} ${y + w * .6} V${y + h}Z" fill="url(#ghWin)" opacity=".75" stroke="#5a4a74" stroke-width="5"/>`;
+  });
+  // house banners hanging on the far wall
+  HOUSE_IDS.forEach((id, i) => { const H = HOUSES[id], x = [560, 640, 920, 1000][i];
+    s += `<path d="M${x} 240 h50 v150 l-25 -18 l-25 18z" fill="${H.prim}" stroke="${H.sec}" stroke-width="4"/><g transform="translate(${x + 7} 270) scale(.18)">${crestInner(id)}</g>`; });
+  // floor
+  s += `<path d="M0 760 L520 530 H1080 L1600 760 V1000 H0Z" fill="url(#ghFloor)"/>`;
+  // head table + four long house tables receding to the far wall
+  s += `<path d="M560 520 H1040 L1050 548 H550Z" fill="url(#ghTable)" stroke="#2a170b" stroke-width="3"/>`;
+  [[150, 610], [520, 735], [1080, 865], [1450, 990]].forEach(([bx, fx], i) => {
+    const H = HOUSES[HOUSE_IDS[i]], tl = 620 + i * 0, x1 = bx, x2 = fx;
+    const farL = 610 + i * 100, farR = farL + 30;
+    s += `<path d="M${x1 - 70} 1000 L${farL} 550 L${farR} 550 L${x1 + 70} 1000Z" fill="url(#ghTable)" stroke="#2a170b" stroke-width="3"/>`;
+    s += `<path d="M${x1 - 70} 1000 L${farL} 550" stroke="${H.sec}" stroke-width="3" opacity=".5"/>`;
+    for (let t = .15; t < .95; t += .12){ const x = (x1 + (farL + 15 - x1) * t), y = 1000 - 450 * t, w = 10 * (1 - t) + 3; s += `<ellipse cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" rx="${w.toFixed(1)}" ry="${(w * .4).toFixed(1)}" fill="#fcd34d" opacity=".85"/>`; }
+  });
+  // floating candles (static) with soft glows
+  for (let i = 0; i < 46; i++){
+    const depth = rnd(), x = 80 + rnd() * 1440, y = 270 + depth * 330 + rnd() * 40, sc = .45 + depth * 1.1;
+    if (x > 690 && x < 910 && y < 520 && depth < .4) continue;
+    s += `<g transform="translate(${x.toFixed(0)} ${y.toFixed(0)}) scale(${sc.toFixed(2)})"><circle cx="0" cy="-26" r="26" fill="url(#ghGlow)"/><rect x="-5" y="-14" width="10" height="34" rx="2" fill="#fdf6e3" stroke="#c9b48a" stroke-width="1.5"/><path d="M0 -26 Q6 -18 0 -14 Q-6 -18 0 -26Z" fill="#ffcf5c"/><path d="M0 -22 Q2.5 -18 0 -16 Q-2.5 -18 0 -22Z" fill="#fff8d6"/></g>`;
+  }
+  return s + '</svg>';
+}
+
+/* ---------- house points + trophy ---------- */
+function weekKeyOf(d){ const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return todayStr(x); }
+function housePoints(k, wk){ const kk = DB.kids[k]; if (!kk) return 0; wk = wk || weekKeyOf(new Date()); return (kk.sessions || []).filter(s => s.date && weekKeyOf(new Date(s.date)) === wk).reduce((t, s) => t + (s.stars || 0), 0); }
+const HOUSE_GOAL = 120;
+function houseStandings(wk){ const out = {}; HOUSE_IDS.forEach(h => out[h] = { pts:0, members:[] }); playerIds(false).forEach(id => { const w = DB.kids[id].wiz; if (w && w.house){ const p = housePoints(id, wk); out[w.house].pts += p; out[w.house].members.push([id, p]); } }); return out; }
+function houseChip(){
+  const W = WZ(); if (!W.house) return el('span',{class:'pill house-pill', onclick:()=>screenGreatHall()}, '🎩 Get sorted!');
+  const H = HOUSES[W.house], pts = houseStandings()[W.house].pts;
+  return el('span',{class:'pill house-pill', style:`--hp:${H.prim};--hs:${H.sec}`, onclick:()=>screenGreatHall()}, el('span',{class:'hp-crest', html:crestSVG(W.house, 20)}), ` ${H.name} · ${pts} pts`);
+}
+
+/* ---------- owl mail ---------- */
+const HEADMISTRESS = 'Headmistress Elowen Quill';
+function owlCheck(){
+  const W = WZ(), wk = weekKeyOf(new Date());
+  if (!W.accept){ W.accept = true; W.letters.unshift({ id:'accept', date:new Date().toISOString(), title:'Your letter from Starhaven Academy', kind:'accept', read:false,
+    body:`Dear ${kidName()},\n\nWe are delighted to tell you that you have a place at Starhaven Academy of Reading Magic!\n\nAt Starhaven, every story you read makes your magic stronger. First, visit the Great Hall, where the Sorting Stone will choose your house. Then visit the Wandwright in Town Square. Your first wand is a gift from the Academy.\n\nWe can't wait to see what you read.\n\nYours magically,\n${HEADMISTRESS}` }); }
+  const last = (() => { const d = new Date(); d.setDate(d.getDate() - 7); return weekKeyOf(d); })();
+  if (W.lastWeek !== last){
+    W.lastWeek = last;
+    const sess = (K.sessions || []).filter(s => s.date && weekKeyOf(new Date(s.date)) === last);
+    if (sess.length){
+      const stars = sess.reduce((t, s) => t + (s.stars || 0), 0), stories = sess.filter(s => s.kind === 'story' || (s.v2 && s.v2.storyId)).length;
+      const t0 = new Date(last).getTime(), t1 = t0 + 7 * 864e5;
+      const spells = (K.lm && K.lm.m && typeof CURR !== 'undefined') ? Object.entries(K.lm.m).filter(([, m]) => m.at >= t0 && m.at < t1).map(([id]) => CURR.SKILL[id] && CURR.SKILL[id].kid).filter(Boolean) : [];
+      const H = W.house && HOUSES[W.house];
+      const won = H && houseStandings(last)[W.house].pts >= HOUSE_GOAL;
+      if (won) W.cups[last] = W.house;
+      W.letters.unshift({ id:'w' + last, date:new Date().toISOString(), title:'News from Starhaven: week of ' + new Date(last).toLocaleDateString(undefined, { month:'short', day:'numeric' }), kind:'week', read:false,
+        body:`Dear ${kidName()},\n\nWhat a week! You did ${sess.length} reading session${sess.length > 1 ? 's' : ''}${stories ? ` and read ${stories} stor${stories > 1 ? 'ies' : 'y'}` : ''}, earning ${stars} stars.` +
+          (H ? ` That added ${stars} points to ${H.name}.` : '') +
+          (won ? ` ${H.name} reached ${HOUSE_GOAL} points and wins the House Trophy for the week! 🏆` : '') +
+          (spells.length ? `\n\nYou mastered ${spells.length > 1 ? 'new skills' : 'a new skill'}: ${spells.join(', ')}. That is real reading magic.` : '') +
+          `\n\nThe candles in the Great Hall burn brighter every time you open a book. Keep reading!\n\nYours magically,\n${HEADMISTRESS}` });
+    }
+  }
+  W.letters = W.letters.slice(0, 30);
+}
+let owlShown = false;
+function owlPopup(){
+  if (owlShown || !K || (navigator.webdriver && !window.__owlTest)) return; const W = WZ(), unread = W.letters.filter(l => !l.read);
+  if (!unread.length || W.owlNag === todayStr() && unread.every(l => l.nagged)) return; owlShown = true;
+  setTimeout(() => { if (document.querySelector('.overlay') || !document.querySelector('#app .hall-btn') || !K.hero){ owlShown = false; return; }
+    const first = unread[unread.length - 1]; W.owlNag = todayStr(); unread.forEach(l => l.nagged = true); save();
+    modal(el('div',{class:'center'}, el('div',{style:'font-size:72px'}, '🦉'), el('h2',{}, unread.length > 1 ? unread.length + ' owls have arrived!' : 'An owl has arrived!'), el('p',{}, first.title)), [['Open the letter','',1],['Later','gray',0]])
+      .then(ok => { if (ok) screenOwlMail(first.id); }); }, 900);
+}
+function screenOwlMail(openId){
+  stopAll(); const W = WZ();
+  const L = openId ? W.letters.find(l => l.id === openId) : null;
+  if (L){
+    L.read = true; save();
+    const H = W.house && HOUSES[W.house];
+    const actions = L.kind === 'accept' ? el('div',{class:'row center'},
+      !W.house ? el('button',{class:'btn big', onclick:()=>screenSorting()}, '🪨 Go to the Sorting') : null,
+      el('button',{class:'btn big blue', onclick:()=>screenWandShop()}, '🪄 Get my wand')) : null;
+    show(el('div',{class:'screen'},
+      el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenOwlMail()}, '← Letters'), el('h1',{class:'title'}, '🦉 Owl Mail'), el('div')),
+      el('div',{class:'letter'},
+        el('div',{class:'letter-seal', style:`--seal:${H ? H.prim : '#9f1d1d'}`, html: H ? crestSVG(W.house, 40) : '✦'}),
+        el('h2',{}, L.title), ...L.body.split('\n\n').map(p => el('p',{}, ...p.split('\n').flatMap((ln, i) => i ? [el('br'), ln] : [ln]))),
+        el('button',{class:'btn small blue', onclick:()=>say(L.body.replace(/\n+/g, ' '))}, '🔊 Read it to me')),
+      actions));
+    return;
+  }
+  show(el('div',{class:'screen'},
+    el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenGreatHall()}, '← Great Hall'), el('h1',{class:'title'}, '🦉 Owl Mail'), el('div')),
+    el('div',{class:'card'}, W.letters.length ? el('div',{class:'letter-list'}, ...W.letters.map(l => el('button',{class:'letter-row' + (l.read ? '' : ' unread'), onclick:()=>screenOwlMail(l.id)},
+      el('span',{}, l.read ? '📜' : '✉️'), el('b',{}, l.title), el('small',{}, new Date(l.date).toLocaleDateString(undefined, { month:'short', day:'numeric' }))))) : el('p',{}, 'No letters yet. Owls come every week you read!'))));
+}
+
+/* ---------- sorting ceremony ---------- */
+function sortingStoneSVG(glow){
+  return `<svg viewBox="0 0 240 240" width="220" height="220" xmlns="http://www.w3.org/2000/svg"><defs><radialGradient id="ssg"><stop offset="0" stop-color="${glow}" stop-opacity=".8"/><stop offset="1" stop-color="${glow}" stop-opacity="0"/></radialGradient>
+    <linearGradient id="sss" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8d8aa3"/><stop offset="1" stop-color="#3f3b54"/></linearGradient></defs>
+    <circle cx="120" cy="110" r="110" fill="url(#ssg)"/><ellipse cx="120" cy="206" rx="80" ry="14" fill="#000" opacity=".3"/>
+    <path d="M60 196 Q46 120 82 64 Q120 20 160 60 Q196 110 180 196Z" fill="url(#sss)" stroke="#24141f" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M86 88 Q104 70 124 80 M96 120 l20 -8 l-4 20 l18 -6 M140 150 q10 -10 20 -2" stroke="${glow}" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <path d="M78 80 Q92 52 120 46" stroke="#fff" stroke-width="5" opacity=".3" fill="none" stroke-linecap="round"/></svg>`;
+}
+function screenSorting(){
+  stopAll(); const W = WZ();
+  if (W.house) return screenGreatHall();
+  const tally = Object.fromEntries(HOUSE_IDS.map(h => [h, 0])); let i = 0;
+  const ask = () => {
+    if (i >= SORT_QS.length) return reveal();
+    const [q, opts] = SORT_QS[i];
+    const order = shuffle(opts.map((t, j) => [t, HOUSE_IDS[j]]));
+    show(el('div',{class:'screen'},
+      el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenGreatHall()}, '← Back'), el('div',{class:'pageinfo'}, `The Sorting · ${i + 1} / ${SORT_QS.length}`), el('div',{style:'width:80px'})),
+      el('div',{class:'card sort-card'},
+        el('div',{class:'sort-stone', html:sortingStoneSVG('#a78bfa')}),
+        el('h2',{}, q), el('button',{class:'btn small blue', onclick:()=>say(q + ' ' + order.map(o => o[0].replace(/^\S+\s/, '')).join('. '))}, '🔊 Hear it'),
+        el('div',{class:'sort-opts'}, ...order.map(([t, h]) => el('button',{class:'sort-opt', onclick:()=>{ beep('tap'); tally[h]++; i++; ask(); }}, t))))));
+    say(q);
+  };
+  const reveal = (forced) => {
+    const max = Math.max(...Object.values(tally)), tied = HOUSE_IDS.filter(h => tally[h] === max);
+    if (tied.length > 1 && !forced){
+      show(el('div',{class:'screen'}, el('div',{class:'card sort-card'},
+        el('div',{class:'sort-stone', html:sortingStoneSVG('#fde68a')}),
+        el('h2',{}, 'Hmm… the Sorting Stone sees more than one path for you!'), el('p',{}, 'You choose:'),
+        el('div',{class:'sort-opts'}, ...tied.map(h => el('button',{class:'sort-opt', style:`border-color:${HOUSES[h].sec}`, onclick:()=>reveal(h)}, el('span',{html:crestSVG(h, 40)}), ' ' + HOUSES[h].name + ' (' + HOUSES[h].trait + ')'))))));
+      say('The Sorting Stone sees more than one path for you. You choose!');
+      return;
+    }
+    const h = forced || tied[0], H = HOUSES[h];
+    show(el('div',{class:'screen'}, el('div',{class:'card sort-card'}, el('div',{class:'sort-stone thinking', html:sortingStoneSVG(H.sec)}), el('h2',{}, 'The Sorting Stone is thinking…'))));
+    say('Hmm. I see a ' + H.trait + ' heart…');
+    setTimeout(() => {
+      W.house = h; W.robes = [...new Set(W.robes.concat('house'))]; W.hats = [...new Set(W.hats.concat('house'))]; W.robe = W.robe || 'house'; W.hat = W.hat || 'house'; save();
+      confetti(110); beep('level'); say(H.name + '!');
+      show(el('div',{class:'screen'}, el('div',{class:'card sort-card house-reveal', style:`--hp:${H.prim};--hs:${H.sec}`},
+        el('div',{class:'sort-crest', html:crestSVG(h, 170)}),
+        el('h1',{class:'title'}, H.name + '!'), el('p',{class:'house-motto'}, '“' + H.motto + '”'),
+        el('p',{}, `Every star you earn from reading adds points to ${H.name}. You got your house robe and hat. Find them in the Armory!`),
+        el('div',{class:'hero-main', html:heroSVG(170)}),
+        el('div',{class:'row center'}, el('button',{class:'btn big', onclick:()=>screenGreatHall()}, '🏰 To the Great Hall'), el('button',{class:'btn big blue', onclick:()=>screenWandShop()}, '🪄 Get my wand')))));
+    }, 2200);
+  };
+  ask();
+}
+
+/* ---------- Great Hall screen ---------- */
+function screenGreatHall(){
+  stopAll(); const W = WZ(); owlCheck(); save();
+  const st = houseStandings(), unread = W.letters.filter(l => !l.read).length;
+  const mine = W.house && HOUSES[W.house];
+  const cups = Object.values(W.cups || {}).length;
+  show(el('div',{class:'screen'},
+    el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()}, '← Back'), el('h1',{class:'title'}, '🏰 The Great Hall'), el('div')),
+    el('div',{class:'gh-banner', html:greatHallSVG()}, el('div',{class:'gh-cap'}, 'Starhaven Academy of Reading Magic')),
+    !W.house ? el('div',{class:'card center'}, el('div',{class:'sort-stone small', html:sortingStoneSVG('#a78bfa')}), el('h2',{}, 'The Sorting Stone is waiting for you!'), el('p',{}, 'Answer 5 questions and the stone will choose your house.'), el('button',{class:'btn big', onclick:()=>screenSorting()}, '🪨 Begin the Sorting')) : null,
+    mine ? el('div',{class:'card house-card', style:`--hp:${mine.prim};--hs:${mine.sec}`},
+      el('div',{class:'hc-crest', html:crestSVG(W.house, 90)}),
+      el('div',{class:'grow'}, el('h2',{}, mine.name), el('p',{class:'house-motto'}, '“' + mine.motto + '”'),
+        el('div',{class:'v2-prog'}, el('div',{class:'v2-bar'}, el('i',{style:`width:${Math.min(100, st[W.house].pts / HOUSE_GOAL * 100)}%;background:${mine.sec}`})), el('span',{}, `${st[W.house].pts} / ${HOUSE_GOAL} points this week`)),
+        el('p',{class:'muted'}, st[W.house].pts >= HOUSE_GOAL ? '🏆 Your house earned the House Trophy this week!' : `Reach ${HOUSE_GOAL} points by Sunday to win the House Trophy. Every reading star = 1 point.`),
+        cups ? el('p',{}, '🏆 House Trophies won: ' + cups) : null)) : null,
+    el('div',{class:'card'}, el('h2',{}, 'House points this week'),
+      el('div',{class:'house-table'}, ...HOUSE_IDS.map(h => { const H = HOUSES[h], x = st[h];
+        return el('div',{class:'ht-row', style:`--hp:${H.prim};--hs:${H.sec}`}, el('span',{html:crestSVG(h, 34)}), el('b',{}, H.name), el('span',{class:'muted'}, x.members.length ? x.members.map(([id]) => kidName(id)).join(', ') : '—'), el('span',{class:'ht-pts'}, x.pts)); }))),
+    el('div',{class:'cards'},
+      el('div',{class:'card next-card'}, el('div',{style:'font-size:56px;line-height:1'}, '🦉'), el('h2',{}, 'Owl Mail'), el('p',{}, unread ? `${unread} new letter${unread > 1 ? 's' : ''}!` : 'Letters from the Headmistress.'), el('button',{class:'btn big blue', onclick:()=>screenOwlMail()}, unread ? '✉️ Read' : '📜 Letters')),
+      el('div',{class:'card next-card'}, el('div',{style:'font-size:56px;line-height:1'}, '🪄'), el('h2',{}, 'Wandwright'), el('p',{}, W.wand ? 'Upgrade your wand.' : 'Your first wand is free!'), el('button',{class:'btn big blue', onclick:()=>screenWandShop()}, '🪄 Wands')),
+      el('div',{class:'card next-card'}, el('div',{style:'font-size:56px;line-height:1'}, '🧙'), el('h2',{}, 'Wizard Wardrobe'), el('p',{}, 'Robes and hats in the Armory.'), el('button',{class:'btn big blue', onclick:()=>{ armorySlot = 'wizard'; screenArmory(); }}, '🧙 Wardrobe')))));
+}
+
+/* ---------- wand shop ---------- */
+function screenWandShop(sel){
+  stopAll(); const W = WZ();
+  let gift = false;
+  if (!W.woods.includes('oak') || !W.cores.includes('starlight')){ W.woods = [...new Set(W.woods.concat('oak'))]; W.cores = [...new Set(W.cores.concat('starlight'))]; if (!W.wand){ W.wand = { wood:'oak', core:'starlight' }; W.wandOn = true; gift = true; } save(); }
+  sel = sel || Object.assign({}, W.wand);
+  const preview = el('div',{class:'wand-prev'},
+    el('div',{class:'wand-hero', html:heroSVG(190, { wiz:Object.assign({}, W, { wand:sel, wandOn:true }) })}),
+    el('div',{class:'wand-big', html:`<svg viewBox="0 0 320 90" width="100%" xmlns="http://www.w3.org/2000/svg">${wandArt(24, 70, 290, 22, sel.wood, sel.core, 11)}</svg>`}),
+    el('h2',{}, `${WOOD_BY[sel.wood].name} + ${CORE_BY[sel.core].name}`), el('p',{class:'muted'}, `${WOOD_BY[sel.wood].desc}. ${CORE_BY[sel.core].desc}.`));
+  const isOwned = (kind, id) => (kind === 'wood' ? W.woods : W.cores).includes(id);
+  const tile = (kind, it) => {
+    const owned = isOwned(kind, it.id), on = sel[kind] === it.id;
+    const art = kind === 'wood' ? wandArt(10, 40, 110, 12, it.id, sel.core, 6) : wandArt(10, 40, 110, 12, sel.wood, it.id, 6);
+    return el('button',{class:'armory-item' + (on ? ' on' : '') + (owned ? '' : ' locked'), onclick:async ()=>{
+      if (!owned){
+        if (balance() < it.cost){ say(`You need ${it.cost} stars for ${it.name}. Keep reading!`); return; }
+        const ok = await modal(el('div',{class:'center'}, el('h2',{}, `${it.name}?`), el('p',{}, `${it.cost} ⭐`)), [['Buy','',1],['Not now','gray',0]]); if (!ok) return;
+        K.spent = (K.spent || 0) + it.cost; (kind === 'wood' ? W.woods : W.cores).push(it.id); beep('star');
+      }
+      sel = Object.assign({}, sel, { [kind]:it.id }); beep('tap'); screenWandShop(sel); }},
+      el('div',{class:'ai-pic', html:`<svg viewBox="0 0 120 52" width="100%" xmlns="http://www.w3.org/2000/svg">${art}</svg>`}),
+      el('div',{class:'ai-name'}, it.name), el('div',{class:'ai-sub'}, owned ? (on ? '✓ Chosen' : 'Tap to choose') : it.cost + ' ⭐'));
+  };
+  const same = W.wand && W.wand.wood === sel.wood && W.wand.core === sel.core;
+  show(el('div',{class:'screen'},
+    el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()}, '← Back'), el('h1',{class:'title'}, '🪄 The Wandwright'), el('span',{class:'pill'}, '⭐ ' + balance())),
+    gift ? el('div',{class:'card center'}, el('h2',{}, '🎁 A gift from Starhaven!'), el('p',{}, 'Your first wand: Oak with a Starlight core. Buy new woods and cores with stars and mix them any way you like.')) : null,
+    el('div',{class:'shop-layout'}, el('div',{class:'card'}, preview,
+      el('div',{class:'row center'},
+        same ? null : el('button',{class:'btn big', onclick:()=>{ W.wand = sel; W.wandOn = true; save(); confetti(50); beep('level'); say('Your new wand is ready!'); screenWandShop(sel); }}, '✨ Use this wand'),
+        el('button',{class:'btn ' + (W.wandOn ? 'gray' : 'blue'), onclick:()=>{ W.wandOn = !W.wandOn; save(); screenWandShop(sel); }}, W.wandOn ? '⚔️ Hold my weapon instead' : '🪄 Hold my wand'))),
+      el('div',{class:'grow'},
+        el('div',{class:'card wand-sec'}, el('h2',{style:'margin-top:0'}, '🌳 Wand wood'), el('div',{class:'armory-grid'}, ...WAND_WOODS.map(w => tile('wood', w)))),
+        el('div',{class:'card wand-sec'}, el('h2',{style:'margin-top:0'}, '✨ Wand core'), el('div',{class:'armory-grid'}, ...WAND_CORES.map(c => tile('core', c))))))));
+}
+
+/* ---------- wardrobe tab in the Armory ---------- */
+function wizardWardrobe(grid){
+  const W = WZ();
+  const item = (kind, it) => {
+    const list = kind === 'robe' ? W.robes : W.hats, owned = list.includes(it.id), on = W[kind] === it.id;
+    const houseLocked = it.house && !W.house;
+    const ov = Object.assign({}, W, { [kind]:it.id });
+    return el('button',{class:'armory-item' + (owned ? '' : ' locked') + (on ? ' on' : ''), onclick:async ()=>{
+        if (houseLocked){ say('Get sorted into a house in the Great Hall to unlock this!'); return; }
+        if (!owned){
+          if (balance() < it.cost){ say(`You need ${it.cost} stars. Keep reading!`); return; }
+          const ok = await modal(el('div',{class:'center'}, el('h2',{}, it.name + '?'), el('p',{}, it.cost + ' ⭐')), [['Buy','',1],['Not now','gray',0]]); if (!ok) return;
+          K.spent = (K.spent || 0) + it.cost; list.push(it.id); beep('star');
+        }
+        W[kind] = on ? null : it.id; save(); beep('tap'); screenArmory(); }},
+      el('div',{class:'ai-pic', html: heroSVG(84, { wiz:ov })}),
+      el('div',{class:'ai-name'}, it.name), el('div',{class:'ai-sub'}, houseLocked ? '🎩 Get sorted first' : owned ? (on ? '✓ Wearing (tap to remove)' : 'Tap to wear') : it.cost + ' ⭐'));
+  };
+  grid.append(el('h3',{class:'ww-h'}, '🧥 Robes'), ...ROBES.map(r => item('robe', r)), el('h3',{class:'ww-h'}, '🎩 Hats'), ...HATS.map(h => item('hat', h)),
+    el('h3',{class:'ww-h'}, '🪄 Wand'),
+    el('button',{class:'armory-item' + (W.wandOn && W.wand ? ' on' : ''), onclick:()=>{ if (!W.wand) return screenWandShop(); W.wandOn = !W.wandOn; save(); screenArmory(); }},
+      el('div',{class:'ai-pic', html: W.wand ? `<svg viewBox="0 0 120 52" width="100%" xmlns="http://www.w3.org/2000/svg">${wandArt(10, 40, 110, 12, W.wand.wood, W.wand.core, 6)}</svg>` : ''}, W.wand ? null : '🪄'),
+      el('div',{class:'ai-name'}, W.wand ? 'My wand' : 'No wand yet'), el('div',{class:'ai-sub'}, !W.wand ? 'Visit the Wandwright' : W.wandOn ? '✓ Holding (tap for weapon)' : 'Tap to hold')),
+    el('button',{class:'armory-item', onclick:()=>screenWandShop()}, el('div',{class:'ai-pic', style:'font-size:44px'}, '🏪'), el('div',{class:'ai-name'}, 'Wandwright'), el('div',{class:'ai-sub'}, 'New woods & cores')));
+}
+
+/* ---------- hooks into the existing game ---------- */
+const _screenHomeW = screenHome;
+screenHome = function(msg){
+  _screenHomeW(msg);
+  if (!K || kid === 'dev' && !K.wiz) return;
+  owlCheck(); save();
+  const stats = document.querySelector('#app .screen .stats');
+  if (stats) stats.append(houseChip());
+  const town = document.querySelector('#app .screen .town-btn');
+  if (town){ const unread = WZ().letters.filter(l => !l.read).length;
+    town.after(el('button',{class:'btn small hall-btn', onclick:()=>{ beep('tap'); screenGreatHall(); }}, '🏰 Great Hall', unread ? el('span',{class:'owl-badge'}, '🦉' + unread) : null)); }
+  owlPopup();
+};
+PZ_BUILDINGS.push(
+  { id:'hall',  x:420,  y:650, w:170, h:150, wall:'#e7e0f0', roof:'#4c1d95', trim:'#c4b5fd', kind:'tower', icon:'🏰', name:'Great Hall', sub:'Houses & owl mail', go:() => screenGreatHall() },
+  { id:'wands', x:1130, y:780, w:170, h:130, wall:'#efe6f7', roof:'#6d28d9', trim:'#fbbf24', kind:'gable', icon:'🪄', name:'Wandwright', sub:'Wands', go:() => screenWandShop() });
+
+/* ======================= EXPERT QUESTIONS (Gia from Rank 5) =======================
+   Harder than Challenge: who-said-it, order of 4 events, spot the exact sentence (changed details),
+   word meaning in context, plus the story's deepest written questions with look-alike wrong answers. All from memory. */
+const SAY_V = 'said|asked|whispered|shouted|called|cried|yelled|replied|answered|added|muttered|explained|laughed|gasped|begged|snapped|announced|exclaimed|admitted|agreed|warned|growled|sighed';
+const NOT_NAMES = new Set('He She They It The I We Then But And When So You His Her Their Its There This That What Where Why How One Two Everyone Nobody Someone Mom Dad Yes No Oh Maybe Just Now Soon Still At In On As If'.split(' '));
+function storyNames(text){
+  const t = text.replace(/\s+/g, ' '), cnt = {};
+  (t.match(/(?<=[a-z,;] )[A-Z][a-z]{2,}/g) || []).forEach(n => { if (!NOT_NAMES.has(n)) cnt[n] = (cnt[n] || 0) + 1; });
+  return Object.keys(cnt).filter(n => cnt[n] >= 2).sort((a, b) => cnt[b] - cnt[a]);
+}
+function quoteSpeakers(text){
+  const t = text.replace(/\s+/g, ' '), out = [], Q = '[“"]', E = '[”"]';
+  const pats = [new RegExp(`${Q}([^”"]{18,120}?)[,.!?]?${E},?\\s+(?:${SAY_V})\\s+([A-Z][a-z]+)`, 'g'), new RegExp(`${Q}([^”"]{18,120}?)[,.!?]?${E},?\\s+([A-Z][a-z]+)\\s+(?:${SAY_V})`, 'g')];
+  pats.forEach(re => { let m; while ((m = re.exec(t))) if (!NOT_NAMES.has(m[2])) out.push({ q:m[1].trim(), who:m[2] }); });
+  let m; const re3 = new RegExp(`([A-Z][a-z]+)\\s+(?:${SAY_V})[,:]?\\s+${Q}([^”"]{18,120}?)${E}`, 'g');
+  while ((m = re3.exec(t))) if (!NOT_NAMES.has(m[1])) out.push({ q:m[2].replace(/[,.!?]$/, '').trim(), who:m[1] });
+  return out;
+}
+const DETAIL_COLORS = ['red','blue','green','gold','golden','silver','purple','white','black','orange','yellow','pink','gray','brown'];
+const DETAIL_NUMS = ['two','three','four','five','six','seven','eight','nine','ten','twelve','hundred'];
+function expertExtras(story){
+  const out = [], text = story.text, names = storyNames(text), plain = storySentences(text).filter(x => !/["“”]/.test(x));
+  // 1. who said it?
+  const quotes = quoteSpeakers(text).filter(x => names.includes(x.who) || names.length < 3);
+  const qPick = shuffle(quotes).find(x => names.filter(n => n !== x.who).length >= 2);
+  if (qPick){ const wrong = shuffle(names.filter(n => n !== qPick.who)).slice(0, 3);
+    out.push({ q:`Who said this: “${qPick.q}”?`, opts:shuffle([qPick.who, ...wrong].map(t => ({ t, right:t === qPick.who }))) }); }
+  // 2. order of four events
+  if (plain.length >= 8){
+    const n = plain.length, ev = [.08, .35, .62, .9].map(f => tidy(plain[Math.min(n - 1, Math.floor(n * f))]));
+    if (new Set(ev).size === 4){
+      const L = ['A','B','C','D'], disp = shuffle([0, 1, 2, 3]);           // disp[k] = which event is shown as letter k
+      const letterOf = e => L[disp.indexOf(e)], right = [0, 1, 2, 3].map(letterOf).join(' → ');
+      const perms = new Set([right]); while (perms.size < 4) perms.add(shuffle([0, 1, 2, 3]).map(letterOf).join(' → '));
+      out.push({ q:'Put these in story order:\n' + L.map((l, k) => `${l}) ${ev[disp[k]]}`).join('\n'), order:true, opts:shuffle([...perms].map(t => ({ t, right:t === right }))) });
+    }
+  }
+  // 3. which sentence is EXACTLY right? (one detail changed in the others)
+  for (const s of shuffle(plain)){
+    const words = s.split(' ');
+    const swap = (list) => { const i = words.findIndex((w, j) => list.includes(w.replace(/[^\w]/g, '').toLowerCase()) || (list === names && j > 0 && list.includes(w.replace(/[^\w]/g, '')))); return i; };
+    let i = swap(names), pool = names, cap = true;
+    if (i < 0){ i = swap(DETAIL_COLORS); pool = DETAIL_COLORS; cap = false; }
+    if (i < 0){ i = swap(DETAIL_NUMS); pool = DETAIL_NUMS; cap = false; }
+    if (i < 0) continue;
+    const orig = words[i].replace(/[^\w]/g, ''), alts = shuffle(pool.filter(x => x.toLowerCase() !== orig.toLowerCase())).slice(0, 3);
+    if (alts.length < 3) continue;
+    const fake = alts.map(a => { const w = words.slice(); w[i] = words[i].replace(orig, cap || /^[A-Z]/.test(orig) ? a[0].toUpperCase() + a.slice(1) : a); return tidy(w.join(' ')); });
+    out.push({ q:'Which sentence is EXACTLY what the story says?', opts:shuffle([{ t:tidy(s), right:true }, ...fake.map(t => ({ t, right:false }))]) });
+    break;
+  }
+  // 4. word meaning in context
+  const defs = Object.entries(GLOSSARY);
+  for (const s of shuffle(storySentences(text).filter(x => !/["“”]/.test(x)))){
+    const w = s.split(/\s+/).map(x => x.replace(/[^\w'-]/g, '')).find(x => x.length > 4 && defFor(x));
+    if (!w) continue;
+    const d = defFor(w), wrong = shuffle(defs.map(x => x[1]).filter(x => x !== d)).slice(0, 3);
+    out.push({ q:`“${tidy(s)}”\nWhat does “${w}” mean here?`, opts:shuffle([d, ...wrong].map(t => ({ t, right:t === d }))) });
+    break;
+  }
+  return out;
+}
+function expertQuiz(story){
+  const ch = challengeQuiz(story);                     // starts with the story's deepest written questions (look-alike wrong answers)
+  const deep = ch.filter(x => !/happened (FIRST|LAST)|did NOT happen/.test(x.q)).slice(0, 2);
+  const extra = shuffle(expertExtras(story)), notHap = ch.filter(x => /did NOT happen/.test(x.q));
+  const out = deep.concat(extra.slice(0, 3));
+  const spare = extra.slice(3).concat(notHap, ch.filter(x => !out.includes(x)));
+  while (out.length < 5 && spare.length) out.push(spare.shift());
+  const qs = shuffle(out).slice(0, 5); qs.extra = spare; return qs;
+}
+
+/* ======================= PATH OF POWERS: one unique power per hero, earned from Rank 5 ======================= */
+const POWERS = {
+  truesight: { name:'Truesight Eyes', color:'#f59e0b', use:'Hard words', desc:'Your eyes see inside hard words. While reading, tap a word to see its chunks (5 per story) without it counting as help. In quizzes, see what tricky words mean.' },
+  frost:     { name:'Frostbound',     color:'#38bdf8', use:'Freeze time', desc:'Ice power! Once per quiz, freeze a wrong answer in ice and try again.' },
+  storm:     { name:'Stormcaller',    color:'#64748b', use:'Wind & rain', desc:'Wind and rain obey you. Once per quiz, blow one wrong answer away.' },
+  sky:       { name:'Skyborne',       color:'#a78bfa', use:'Flight',      desc:'You can fly! Once per quiz, soar over the story and see the sentence that holds the answer glow.' },
+  blink:     { name:'Blink',          color:'#ec4899', use:'Teleport',    desc:'Teleport! Once per quiz, vanish from a question and land on a new one.' },
+  laser:     { name:'Laser Gaze',     color:'#ef4444', use:'Laser eyes',  desc:'Perfect aim: every quiz you get 100% right earns +3 bonus stars. In boss battles, laser away two wrong answers once.' },
+  totem:     { name:'Totem Keeper',   color:'#b45309', use:'Shaman totems', desc:'You carve spirit totems. Once per quiz, the Wisdom Totem whispers the secret of how to solve the question. Every quiz with 4+ right, your Totem of Plenty gives +1 star.' },
+  light:     { name:'Lightbringer',   color:'#facc15', use:'Paladin light', desc:'Holy light! After you get 2 answers right in a quiz, your light can shine once and leave only 2 choices.' },
+  invisible: { name:'Invisibility',   color:'#7c3aed', use:'Invisible',   desc:'Nobody can see you! Once per memory quiz, sneak a secret 5-second peek at the story and keep your memory bonus. In boss battles, turn invisible once so a wrong answer misses you.' },
+  sorcery:   { name:'Sorcerer',       color:'#f97316', use:'Fireballs & lightning', desc:'Get 3 right in a row and a lightning wave strikes: +2 stars, every time! In boss battles, hurl a fireball once to burn away two wrong answers.' }
+};
+const TOTEM_TIPS = {
+  'comp.sequence':'Picture the story like a movie. What happened at the start, the middle and the end?',
+  'comp.cause':'Find the thing that happened, then look for the reason (the word "because" often hides near it).',
+  'comp.character':'Think about what the character DID and SAID. Feelings show in actions.',
+  'comp.infer':'The answer is not written. Put a clue from the story together with what you already know.',
+  'comp.main_idea':'Which answer covers the WHOLE story, not just one part?',
+  'comp.predict':'What do the clues point to? Pick what would most likely happen, not the silliest.',
+  'comp.details':'Small words matter: names, colors and numbers. Which one matches exactly?',
+  'comp.fact_opinion':'Can it be proven? That is a fact. Is it what someone feels? That is an opinion.',
+  'comp.pov':'Look for I and we (a character tells it) or he, she and they (a narrator tells it).',
+  'comp.compare':'Look for what is the SAME for both.',
+  'comp.purpose':'Is it to teach, to entertain, or to get you to do something?',
+  'voc.meaning':'Read the sentence around the word. Try each answer in its place. Which one makes sense?',
+  'comp.literal':'This answer is right there in the story. Who, what, where or when?'
+};
+function powerEmblem(id, size){
+  const P = POWERS[id], c = P.color, ink = '#24141f';
+  const art = {
+    truesight:`<path d="M20 60 Q60 22 100 60 Q60 98 20 60Z" fill="#fff" stroke="${ink}" stroke-width="5"/><circle cx="60" cy="60" r="20" fill="${c}" stroke="${ink}" stroke-width="4"/><path d="M60 46 L64 56 L74 60 L64 64 L60 74 L56 64 L46 60 L56 56Z" fill="#fff7d6"/>`,
+    frost:`<g stroke="${ink}" stroke-width="10" stroke-linecap="round">${[0,60,120].map(a => `<path d="M60 18 V102" transform="rotate(${a} 60 60)"/>`).join('')}</g><g stroke="#e0f2fe" stroke-width="5" stroke-linecap="round">${[0,60,120].map(a => `<path d="M60 18 V102 M60 30 l-10 -9 M60 30 l10 -9 M60 90 l-10 9 M60 90 l10 9" transform="rotate(${a} 60 60)"/>`).join('')}</g><circle cx="60" cy="60" r="9" fill="${c}" stroke="${ink}" stroke-width="3"/>`,
+    storm:`<path d="M28 52 Q24 32 44 30 Q50 14 70 20 Q90 16 92 36 Q106 40 100 54 Z" fill="#cbd5e1" stroke="${ink}" stroke-width="5" stroke-linejoin="round"/><path d="M62 54 L50 76 H62 L54 98 L78 68 H66 L74 54Z" fill="#facc15" stroke="${ink}" stroke-width="4" stroke-linejoin="round"/><path d="M34 66 l-4 10 M44 70 l-4 10 M86 66 l-4 10 M96 62 l-4 10" stroke="#38bdf8" stroke-width="5" stroke-linecap="round"/>`,
+    sky:`<path d="M58 66 Q36 30 10 34 Q20 46 16 54 Q30 52 32 62 Q44 58 58 66Z" fill="#fff" stroke="${ink}" stroke-width="4" stroke-linejoin="round"/><path d="M62 66 Q84 30 110 34 Q100 46 104 54 Q90 52 88 62 Q76 58 62 66Z" fill="#fff" stroke="${ink}" stroke-width="4" stroke-linejoin="round"/><circle cx="60" cy="70" r="10" fill="${c}" stroke="${ink}" stroke-width="4"/>`,
+    blink:`<path d="M60 18 A42 42 0 1 1 18 60" fill="none" stroke="${c}" stroke-width="10" stroke-linecap="round"/><path d="M60 34 A26 26 0 1 1 34 60" fill="none" stroke="#fbcfe8" stroke-width="8" stroke-linecap="round"/><circle cx="60" cy="60" r="10" fill="#fff" stroke="${ink}" stroke-width="4"/>${wStar(26, 30, 9, '#fff7d6')}`,
+    totem:`<rect x="44" y="20" width="32" height="84" rx="4" fill="#d97706" stroke="${ink}" stroke-width="4"/><path d="M30 34 L44 30 L44 44Z M90 34 L76 30 L76 44Z" fill="#fde68a" stroke="${ink}" stroke-width="3"/><circle cx="53" cy="36" r="4" fill="${ink}"/><circle cx="67" cy="36" r="4" fill="${ink}"/><path d="M52 48 h16" stroke="${ink}" stroke-width="4"/><path d="M44 60 h32 M44 82 h32" stroke="${ink}" stroke-width="4"/><circle cx="53" cy="70" r="4" fill="#fff"/><circle cx="67" cy="70" r="4" fill="#fff"/><path d="M50 94 q10 6 20 0" stroke="${ink}" stroke-width="3" fill="none"/>`,
+    light:`${[0,45,90,135,180,225,270,315].map(a => `<path d="M60 8 L64 28 L56 28Z" fill="#fde68a" transform="rotate(${a} 60 60)"/>`).join('')}<path d="M60 30 L86 40 Q86 74 60 92 Q34 74 34 40Z" fill="#fff" stroke="${ink}" stroke-width="4" stroke-linejoin="round"/>${wStar(60, 60, 17, c)}`,
+    sorcery:`<circle cx="50" cy="66" r="24" fill="${c}" stroke="${ink}" stroke-width="4"/><path d="M30 56 Q20 36 36 26 Q36 40 46 44 Q44 28 58 18 Q58 34 70 42 Q78 34 76 24 Q90 40 74 58" fill="#fdba74" stroke="${ink}" stroke-width="4" stroke-linejoin="round"/><circle cx="50" cy="68" r="11" fill="#fef3c7"/><path d="M86 52 L76 74 H86 L80 98 L102 66 H92 L98 52Z" fill="#facc15" stroke="${ink}" stroke-width="3.5" stroke-linejoin="round"/>`,
+    invisible:`<path d="M60 18 Q90 18 90 52 V98 L80 90 L70 100 L60 90 L50 100 L40 90 L30 98 V52 Q30 18 60 18Z" fill="#fff" fill-opacity=".55" stroke="${ink}" stroke-width="4" stroke-dasharray="9 6" stroke-linejoin="round"/><ellipse cx="50" cy="50" rx="6" ry="8" fill="${c}"/><ellipse cx="70" cy="50" rx="6" ry="8" fill="${c}"/>${wStar(94, 24, 8, '#fff7d6')}${wStar(24, 80, 6, '#fff7d6')}`,
+    laser:`<path d="M14 58 Q36 34 58 58 Q36 78 14 58Z M62 58 Q84 34 106 58 Q84 78 62 58Z" fill="#fff" stroke="${ink}" stroke-width="4"/><circle cx="36" cy="57" r="8" fill="${c}"/><circle cx="84" cy="57" r="8" fill="${c}"/><path d="M36 66 L22 108 M84 66 L98 108" stroke="${c}" stroke-width="8" stroke-linecap="round"/><path d="M36 66 L22 108 M84 66 L98 108" stroke="#fee2e2" stroke-width="3" stroke-linecap="round"/>`
+  }[id];
+  return `<svg viewBox="0 0 120 120" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg"><circle cx="60" cy="60" r="56" fill="${c}" opacity=".22"/><circle cx="60" cy="60" r="56" fill="none" stroke="${c}" stroke-width="4"/>${art}</svg>`;
+}
+const PW = () => (K && K.power && POWERS[K.power.id]) ? K.power.id : null;
+const TRIALS = [
+  { id:'focus',    name:'Trial of Focus',    need:5, of:5,  desc:'Read a story from the NEXT rank once. Then answer 5 expert questions from memory. You need all 5.' },
+  { id:'words',    name:'Trial of Words',    need:7, of:8,  desc:'8 tricky words, each in its sentence. What does it mean? You need 7 of 8.' },
+  { id:'clues',    name:'Trial of Clues',    need:7, of:8,  desc:'8 detective puzzles: hidden clues, predictions, main ideas, fact or opinion. You need 7 of 8.' },
+  { id:'memory',   name:'Trial of Memory',   need:5, of:6,  desc:'Read a long story ONE time. Then 6 expert questions, no looking back. You need 5 of 6.' },
+  { id:'guardian', name:'The Power Guardian',need:9, of:10, desc:'The final test: read one more story, then 10 of the hardest questions. You need 9 of 10.' }
+];
+function PP(){ K.powerPath = Object.assign({ done:[], rest:{}, tries:0 }, K.powerPath || {}); return K.powerPath; }
+const trialIcon = i => ['🎯','📖','🔍','🧠','🛡️'][i];
+function trialStory(offset){
+  const lv = Math.min(T.levels.length, K.level + 1), L = T.levels.find(l => l.n === lv) || T.levels[T.levels.length - 1];
+  let pool = (L.stories || []).filter(s => s.qs && s.qs.length >= 4 && s.text);
+  if (TK === 'daughter' && typeof DAUGHTER_EXTRA !== 'undefined' && DAUGHTER_EXTRA[lv]) pool = pool.concat(DAUGHTER_EXTRA[lv].filter(s => s.text && s.qs));
+  const used = PP().used || [];
+  pool = pool.filter(s => !used.includes(s.title)).sort((a, b) => b.text.length - a.text.length);
+  return pool[offset % Math.max(1, pool.length)] || L.stories[0];
+}
+const asItem = q => { const a = q.opts.findIndex(o => o.right); return { skill:CURR.tagQuestion(q.q), type:'pick', prompt:q.q, options:q.opts.map(o => ({ t:o.t })), answer:a, explain:'Answer: ' + q.opts[a].t }; };
+function vocabTrialItems(n){
+  const defs = Object.entries(GLOSSARY), seen = new Set(), items = [];
+  const stories = shuffle(allTrackStories(TK).filter(s => s.text));
+  for (const st of stories){
+    for (const s of shuffle(storySentences(st.text).filter(x => !/["“”]/.test(x)))){
+      const w = s.split(/\s+/).map(x => x.replace(/[^\w'-]/g, '')).find(x => x.length > 4 && defFor(x) && !seen.has(defFor(x)));
+      if (!w) continue; const d = defFor(w); seen.add(d);
+      const o = shuffle([d, ...shuffle(defs.map(x => x[1]).filter(x => x !== d)).slice(0, 3)]);
+      items.push({ skill:'voc.context', type:'pick', prompt:`“${tidy(s).replace(new RegExp('\\b' + w + '\\b'), '**' + w + '**')}”\nWhat does “${w}” mean here?`, options:o.map(t => ({ t })), answer:o.indexOf(d), explain:`${w}: ${d}` });
+      break;
+    }
+    if (items.length >= n) break;
+  }
+  return items;
+}
+function cluesTrialItems(n){
+  const ids = shuffle(['comp.infer','comp.predict','comp.main_idea','comp.fact_opinion','comp.pov','comp.compare','comp.purpose','comp.infer']);
+  CURR.seed(Date.now()); const items = [], seen = new Set();
+  for (let i = 0; items.length < n && i < 40; i++){ const it = CURR.makeItem(ids[i % ids.length], 5, i); if (it && !seen.has(it.prompt)){ seen.add(it.prompt); items.push(it); } }
+  return items;
+}
+function screenPowers(){
+  stopAll(); const P = PP(), today = todayStr();
+  if (PW()) return screenMyPower();
+  const locked = K.level < 5;
+  const step = P.done.length, T0 = TRIALS[step];
+  const resting = T0 && P.rest[T0.id] === today;
+  show(el('div',{class:'screen'},
+    el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()}, '← Back'), el('h1',{class:'title'}, '⚡ Path of Powers'), el('div')),
+    el('div',{class:'card pow-intro'},
+      el('div',{class:'pow-emblems', html:Object.keys(POWERS).map(id => powerEmblem(id, 58)).join('')}),
+      el('h2',{}, 'Every hero has ONE hidden power.'),
+      el('p',{}, 'Pass all 5 trials to awaken yours: Truesight Eyes, Frostbound, Stormcaller, Skyborne, Blink, Laser Gaze, Totem Keeper, Lightbringer, Sorcerer or Invisibility. Each power can belong to only one hero in your family.'),
+      el('p',{class:'muted'}, 'The trials are hard on purpose. If you fail one, your power needs to rest until tomorrow.')),
+    locked ? el('div',{class:'card center'}, el('h2',{}, '🔒 Reach Rank 5 to begin'), el('p',{}, `You are Rank ${K.level}. Keep reading and beating bosses!`)) :
+    el('div',{class:'pow-path'}, ...TRIALS.map((t, i) => {
+      const done = i < step, cur = i === step;
+      return el('div',{class:'card pow-step' + (done ? ' done' : cur ? ' cur' : ' lock')},
+        el('div',{class:'pow-num'}, done ? '✓' : trialIcon(i)),
+        el('div',{class:'grow'}, el('h3',{}, `${i + 1}. ${t.name}`), el('p',{}, t.desc)),
+        cur ? (resting ? el('div',{class:'pow-rest'}, '💤 Resting. Try again tomorrow!') : el('button',{class:'btn big', onclick:()=>runTrial(i)}, '⚔️ Begin')) : done ? el('b',{class:'pow-ok'}, 'Passed') : el('span',{class:'muted'}, '🔒'));
+    })),
+    !locked && step >= TRIALS.length ? el('div',{class:'card center'}, el('h2',{}, 'All trials passed!'), el('button',{class:'btn big', onclick:()=>screenAwaken()}, '✨ Awaken my power')) : null));
+}
+function runTrial(i){
+  const t = TRIALS[i], P = PP(), sid = kid + '_trial_' + Date.now();
+  const finish = res => {
+    const k = res.filter(r => r.ok).length, pass = k >= t.need;
+    P.tries++;
+    if (pass){ P.done.push(t.id); confetti(80); beep('level'); }
+    else { P.rest[t.id] = todayStr(); beep('bad'); }
+    if (typeof CURR !== 'undefined' && K.lm) CURR.commit(K.lm);
+    K.sessions.unshift({ id:sid, date:new Date().toISOString(), level:K.level, title:'⚡ ' + t.name, kind:'trial', mode:'trial', accuracy:Math.round(k / res.length * 1000) / 10, quiz:k + '/' + res.length, stars: pass ? 10 : 2, missed:[], total:0, correct:0, helped:0 });
+    K.stars += pass ? 10 : 2; save();
+    show(el('div',{class:'screen'}, el('div',{class:'card center pow-result ' + (pass ? 'win' : 'lose')},
+      el('div',{class:'hero-main', html:heroSVG(150)}),
+      el('h1',{class:'title'}, pass ? `${t.name}: PASSED!` : 'Not this time…'),
+      el('p',{style:'font-size:22px'}, `${k} of ${res.length} right (needed ${t.need}).`),
+      el('p',{}, pass ? (i === TRIALS.length - 1 ? 'You defeated the Power Guardian! Your power is ready to awaken.' : 'The next trial is open. +10 ⭐') : 'Your power must rest. Come back tomorrow and try again. Real heroes try again! +2 ⭐'),
+      el('div',{class:'row center'}, pass && i === TRIALS.length - 1 ? el('button',{class:'btn big', onclick:()=>screenAwaken()}, '✨ Awaken my power') : el('button',{class:'btn big', onclick:()=>screenPowers()}, '⚡ Path of Powers'), el('button',{class:'btn gray', onclick:()=>screenHome()}, '🏠 Home')))));
+  };
+  const ask = (items, title) => v2RunItems(items, { mode:'placement', src:'trial', sid, title, finishLabel:'See result', onQuit:screenPowers, onDone:finish });
+  const readThen = (story, build, title) => {
+    P.used = (P.used || []).concat(story.title).slice(-30);
+    const t0 = Date.now();
+    show(el('div',{class:'screen'},
+      el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenPowers()}, '← Back'), el('div',{class:'pageinfo'}, title + ' · read carefully, ONE time'), el('div',{style:'width:80px'})),
+      el('div',{class:'card v2-read'}, el('h2',{}, (story.emoji || '📖') + ' ' + story.title),
+        ...story.text.split(/\n\s*\n/).map(p => el('p',{}, ...p.split(/(\s+)/).map(w => /\S/.test(w) ? el('span',{class:'v2-w', onclick:ev=>{ ev.target.classList.add('helped'); say(w.replace(/[^\w']/g, '')); }}, w) : w))),
+        el('p',{class:'muted'}, 'When you tap Done, the story disappears. The questions are answered from memory.'),
+        el('button',{class:'btn big', onclick:async ()=>{ if (Date.now() - t0 < Math.min(60000, story.text.split(/\s+/).length * 150)){ const ok = await modal(el('p',{}, 'That was fast! Are you sure you read it all?'), [['Yes, I\'m ready','',1],['Keep reading','gray',0]]); if (!ok) return; } ask(build(story), title); }}, '✓ Done reading'))));
+  };
+  const ex = (story, n) => { const q = expertQuiz(story); return q.concat(q.extra || []).slice(0, n).map(asItem); };
+  if (t.id === 'focus') readThen(trialStory(0), s => ex(s, 5), t.name);
+  if (t.id === 'words') ask(vocabTrialItems(8), t.name);
+  if (t.id === 'clues') ask(cluesTrialItems(8), t.name);
+  if (t.id === 'memory') readThen(trialStory(1), s => ex(s, 6), t.name);
+  if (t.id === 'guardian') readThen(trialStory(2), s => shuffle(ex(s, 5).concat(vocabTrialItems(3), cluesTrialItems(2))), t.name);
+}
+function takenPowers(){ const out = {}; playerIds(false).forEach(id => { const k = DB.kids[id]; if (id !== kid && k && k.power && k.power.id) out[k.power.id] = kidName(id); }); return out; }
+function screenAwaken(){
+  stopAll(); const P = PP(); if (P.done.length < TRIALS.length) return screenPowers(); if (PW()) return screenMyPower();
+  const taken = takenPowers();
+  show(el('div',{class:'screen'},
+    el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenPowers()}, '← Back'), el('h1',{class:'title'}, '✨ Awakening'), el('div')),
+    el('div',{class:'card center'}, el('h2',{}, 'Choose the power that lives inside you.'), el('p',{class:'muted'}, 'This choice is forever. Each power belongs to only one hero in your family.')),
+    el('div',{class:'pow-grid'}, ...Object.entries(POWERS).map(([id, p]) => el('button',{class:'pow-card' + (taken[id] ? ' taken' : ''), style:`--pc:${p.color}`, onclick:async ()=>{
+      if (taken[id]) return say(`${p.name} belongs to ${taken[id]}.`);
+      say(p.name + '. ' + p.desc);
+      const ok = await modal(el('div',{class:'center'}, el('div',{html:powerEmblem(id, 120)}), el('h2',{}, p.name + '?'), el('p',{}, p.desc), el('p',{class:'muted'}, 'This is forever!')), [['Awaken it!','',1],['Not yet','gray',0]]);
+      if (!ok) return;
+      K.power = { id, at:new Date().toISOString() }; save();
+      confetti(140); beep('level'); say('Your power has awakened! You are ' + p.name + '!');
+      screenMyPower(true);
+    }}, el('div',{html:powerEmblem(id, 96)}), el('h3',{}, p.name), el('div',{class:'pow-use'}, p.use), el('p',{}, p.desc), taken[id] ? el('div',{class:'pow-taken'}, '🔒 ' + taken[id] + '\'s power') : null)))));
+}
+function screenMyPower(fresh){
+  stopAll(); const id = PW(); if (!id) return screenPowers(); const p = POWERS[id];
+  document.body.dataset.power = id;
+  show(el('div',{class:'screen'},
+    el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()}, '← Back'), el('h1',{class:'title'}, '⚡ My Power'), el('div')),
+    el('div',{class:'card center pow-mine', style:`--pc:${p.color}`},
+      fresh ? el('h2',{}, 'YOUR POWER HAS AWAKENED!') : null,
+      el('div',{class:'pow-mine-art'}, el('div',{class:'hero-main', html:heroSVG(190)}), el('div',{class:'pow-mine-em', html:powerEmblem(id, 110)})),
+      el('h1',{class:'title'}, p.name), el('div',{class:'pow-use'}, p.use), el('p',{style:'font-size:20px'}, p.desc),
+      el('p',{class:'muted'}, 'Look for the ⚡ power button in your story quizzes and boss battles.'),
+      el('button',{class:'btn big', onclick:()=>screenHome()}, '🏠 Home'))));
+}
+function powerButton(Q, item, optsBox, card, fb, memoryReveal){
+  const id = PW(); if (!id || run.opts.trial) return null;
+  const p = POWERS[id], boss = !!run.opts.boss;
+  if ((id === 'laser' || id === 'sorcery') && !boss) return null;   // their quiz bonuses are automatic
+  if (id === 'light' && Q.correct < 2 && !Q.powerUsed) return el('button',{class:'btn small power-btn', style:`--pc:${p.color}`, disabled:true}, el('span',{html:powerEmblem(id, 26)}), ` Light charging… (${Q.correct}/2 right)`);
+  if (id === 'truesight'){
+    const words = [...new Set((item.q + ' ' + item.opts.map(o => o.t).join(' ')).split(/\s+/).map(x => x.replace(/[^\w'-]/g, '')).filter(x => x.length > 4 && defFor(x)))];
+    if (!words.length) return null;
+    return el('button',{class:'btn small power-btn', style:`--pc:${p.color}`, onclick:ev=>{ beep('star'); ev.target.replaceWith(el('div',{class:'pow-defs'}, ...words.map(w => el('div',{}, el('b',{}, '👁️ ' + w + ': '), defFor(w))))); }}, el('span',{html:powerEmblem(id, 26)}), ' Truesight');
+  }
+  if (Q.powerUsed) return null;
+  if (id === 'invisible' && !boss && !(memoryReveal && card.classList.contains('peek-hidden'))) return null;   // nothing to sneak a look at
+  const use = () => { Q.powerUsed = true; beep('star'); burst(p.name.toUpperCase() + '!'); };
+  const label = { frost:'Freeze time', storm:'Blow away a wrong answer', sky:'Fly to the clue', blink:'Teleport to a new question', laser:'Laser blast', invisible: boss ? 'Turn invisible' : 'Secret 5-second peek', totem:'Ask the Wisdom Totem', light:'Shine the light', sorcery:'Hurl a fireball' }[id];
+  const b = el('button',{class:'btn small power-btn', style:`--pc:${p.color}`, onclick:()=>{
+    const btns = [...optsBox.children], wrongs = btns.filter((c, i) => !item.opts[i].right && !c.classList.contains('gone') && !c.classList.contains('wrong'));
+    if (id === 'totem'){ const tag = CURR.tagQuestion(item.q); fb.textContent = '🗿 The Wisdom Totem whispers: ' + (item.order ? 'Find the event that starts the story first, then the one that ends it. Only one order fits both!' : TOTEM_TIPS[tag] || TOTEM_TIPS['comp.literal']); fb.style.color = '#92400e'; use(); b.remove(); }
+    if (id === 'storm' || id === 'laser' || id === 'sorcery' || id === 'light'){ shuffle(wrongs).slice(0, id === 'storm' ? 1 : 2).forEach(c => { c.classList.add('gone'); c.disabled = true; }); use(); b.remove(); }
+    if (id === 'invisible'){
+      if (boss){ Q.frostArmed = item; use(); b.textContent = '👻 Invisible: a wrong answer will miss you'; b.disabled = true; return; }
+      const cover = card.querySelector('.peek-cover'); card.classList.remove('peek-hidden'); if (cover) cover.style.display = 'none';
+      use(); b.textContent = '👻 Peeking… 5'; b.disabled = true; let n = 5;
+      const tick = setInterval(() => { n--; if (n > 0){ b.textContent = '👻 Peeking… ' + n; return; } clearInterval(tick); if (!item.looked){ card.classList.add('peek-hidden'); if (cover) cover.style.display = ''; } b.textContent = '👻 Peek used'; }, 1000);
+      return;
+    }
+    if (id === 'frost'){ Q.frostArmed = item; use(); b.textContent = '❄️ Time frozen: a wrong answer gets a second try'; b.disabled = true; }
+    if (id === 'blink'){ const nx = (Q.qs.extra || []).shift(); if (!nx){ fb.textContent = 'No spare questions to teleport to here.'; return; } Q.qs[Q.i] = nx; use(); renderQuestion(); }
+    if (id === 'sky'){
+      if (memoryReveal) memoryReveal();
+      const right = item.opts.find(o => o.right).t.replace(/[^\w\s'’-]/g, ' ');
+      const sc = proofScores(card.sentences, item.q, right), best = Math.max(0, ...sc);
+      if (best >= 1){ card.sentSpans[sc.indexOf(best)].forEach(n => n.classList.add('proof-ok')); card.sentSpans[sc.indexOf(best)][0].scrollIntoView({ block:'center', behavior:'smooth' }); fb.textContent = '🪽 You flew over the story. The glowing sentence holds the clue!'; }
+      else fb.textContent = '🪽 You flew over the story. This one needs your own thinking!';
+      use(); b.remove();
+    }
+  }}, el('span',{html:powerEmblem(id, 26)}), ' ' + label);
+  return b;
+}
+function addPowerChip(){
+  const id = PW(); const stats = document.querySelector('#app .screen .stats'); if (!stats) return;
+  document.body.dataset.power = id || '';
+  if (id) stats.append(el('span',{class:'pill power-pill', style:`--pc:${POWERS[id].color}`, onclick:()=>screenMyPower()}, el('span',{html:powerEmblem(id, 22)}), ' ' + POWERS[id].name));
+  const hall = document.querySelector('#app .screen .hall-btn');
+  if (hall && !document.querySelector('#app .pow-btn')) hall.after(el('button',{class:'btn small pow-btn', onclick:()=>{ beep('tap'); screenPowers(); }}, id ? '⚡ My Power' : K.level >= 5 ? '⚡ Path of Powers' : '⚡ Powers 🔒'));
+}
+const _screenHomeP = screenHome;
+screenHome = function(msg){ _screenHomeP(msg); if (K) addPowerChip(); };
+
+/* passive power effects, called after every quiz answer */
+function powerOnAnswer(Q, right, fb){
+  const id = PW(); if (!id || run.opts.trial) return;
+  Q.streak = right ? (Q.streak || 0) + 1 : 0;
+  const bonus = (n, why) => { run.proofStars = (run.proofStars || 0) + n; setTimeout(() => { fb.textContent += `  ${why} +${n} ⭐`; }, 40); };
+  if (id === 'sorcery' && right && Q.streak > 0 && Q.streak % 3 === 0){ bonus(2, '⚡ Lightning wave!'); burst('LIGHTNING!'); }
+  const last = Q.i === Q.qs.length - 1;
+  if (id === 'laser' && last && Q.correct === Q.qs.length) bonus(3, '🔆 Laser perfect!');
+  if (id === 'totem' && last && Q.correct >= 4) bonus(1, '🗿 Totem of Plenty!');
+}
+/* Truesight in the read-aloud reader: first tap on a long word shows its chunks (not counted as help), 5 per story */
+function chunkWord(w){
+  const D = { th:'1', sh:'2', ch:'3', ph:'4', gh:'5', wh:'6', ck:'7', qu:'9' }, back = Object.fromEntries(Object.entries(D).map(([k, v]) => [v, k]));
+  const t = w.toLowerCase().replace(/th|sh|ch|ph|gh|wh|ck|qu/g, m => D[m]);
+  const m = t.match(/[^aeiouy]*[aeiouy]+(?:[^aeiouy]*$|[^aeiouy](?=[^aeiouy]))?/g); if (!m) return w;
+  if (m.length > 1 && /^[^aeiouy]*e$/.test(m[m.length - 1])){ const l = m.pop(); m[m.length - 1] += l; }   // silent e stays with its chunk
+  const out = m.map(c => c.replace(/[1-9]/g, d => back[d]));
+  return out.join('').length === w.length ? out.join(' · ') : w;
+}
+function truesightTap(p, i){
+  if (PW() !== 'truesight' || !run) return false;
+  const w = (p.tokens[i].disp || '').replace(/[^A-Za-z]/g, '');
+  if (w.length < 5) return false;
+  p.tsShown = p.tsShown || {}; if (p.tsShown[i]) return false;
+  if (run.tsLeft == null) run.tsLeft = 5; if (run.tsLeft <= 0) return false;
+  p.tsShown[i] = 1; run.tsLeft--; beep('star');
+  const t = el('div',{class:'ts-chunks'}, el('span',{html:powerEmblem('truesight', 34)}), el('b',{}, chunkWord(w)), el('small',{}, `Truesight: ${run.tsLeft} left. Tap again to hear it.`));
+  document.body.append(t); setTimeout(() => t.remove(), 3500);
+  return true;
+}
+
+if (navigator.webdriver) window.__sb = { expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord };
 mountEpicBg(); setInterval(mountEpicBg, 10 * 60 * 1000);
 if (navigator.webdriver) window.__landing = () => screenFamilyLogin();
+/* ======================= STORYBORNE 2.0: adaptive curriculum UI =======================
+   Engine: curriculum.js (window.CURR). This block only renders it and feeds it evidence.
+   Evidence comes from: lesson activities, placement, v2 story reads, AND every v1 story/quiz (hooks below). */
+const V2 = typeof CURR !== 'undefined';
+function LM(k){ const kk = k || K; kk.lm = CURR.ensure(kk.lm); return kk.lm; }
+function v2Sid(){ return kid + '_v2_' + Date.now(); }
+const v2Esc = s => String(s).replace(/[&<>]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' })[c]);
+const v2Bold = s => v2Esc(s).replace(/\*\*(.+?)\*\*/g, '<b class="v2-hl">$1</b>').replace(/\n/g, '<br>');
+const STATE_INFO = { na:['Not introduced','#94a3b8','○'], emerging:['Emerging','#f97316','◔'], developing:['Developing','#eab308','◑'], mastered:['Mastered','#22c55e','●'], review:['Needs review','#ef4444','↻'] };
+
+/* ---------- library: every existing story, tagged by the engine ---------- */
+let V2LIB = null;
+function v2Library(){
+  if (V2LIB && V2LIB.tk === TK && V2LIB.custom === (K.v2custom || []).length) return V2LIB.list;
+  const out = [], add = (st, src, lvl) => {
+    if (!st || !st.text || !st.qs || st.qs.length < 3) return;
+    const id = src + ':' + st.title;
+    if (out.some(x => x.id === id)) return;
+    const a = CURR.analyzeText(st.text);
+    out.push({ id, title:st.title, emoji:st.emoji || '📖', text:st.text, qs:st.qs.map(q => [q[0], q[1], q[2], q[3] || CURR.tagQuestion(q[0])]), band:a.band, analysis:a, src, lvl });
+  };
+  const trackStories = tr => (tr.levels || []).forEach(L => (L.stories || []).forEach(st => add(st, tr.key || 'track', L.n)));
+  if (typeof SON_TRACK !== 'undefined') trackStories(SON_TRACK);
+  if (typeof DAUGHTER_TRACK !== 'undefined') trackStories(DAUGHTER_TRACK);
+  if (typeof DAUGHTER_EXTRA !== 'undefined') Object.entries(DAUGHTER_EXTRA).forEach(([lv, arr]) => arr.forEach(st => add(st, 'tales', +lv)));
+  (K.v2custom || []).forEach(st => add(st, 'lab', 0));
+  V2LIB = { tk:TK, custom:(K.v2custom || []).length, list:out };
+  return out;
+}
+const v2Theme = () => K.v2theme || (TK === 'daughter' ? 'fantasy' : 'animals');
+
+/* ---------- hooks: v1 activities also feed the learner model ---------- */
+const _trackQ = trackQ;
+trackQ = function(q, ok){
+  _trackQ(q, ok);
+  if (!V2 || !K) return;
+  const lm = LM(), sid = run && run.sessionId || v2Sid();
+  CURR.record(lm, { s:CURR.tagQuestion(q), k:ok ? 1 : 0, n:1, ind:true, c:0.9, src:'story', sid });
+};
+function v2ReadConfidence(res){
+  // grown-up scoring is reliable; speech recognition on young readers is not ground truth
+  if (useManual()) return 0.95;
+  if (!res || !res.total) return 0.5;
+  return res.accuracy < 0.5 ? 0.5 : 0.75;   // very low SR scores usually mean the iPad didn't hear, not that the child can't read
+}
+function v2WordsFromRun(act){
+  const words = [];
+  (act.pages || []).forEach(p => (p.tokens || []).forEach((t, i) => { if (!t.skip && t.n) words.push({ w:t.n, ok:p.status[i] === 'ok', helped:!!(p.helped && p.helped[i]) }); }));
+  return words;
+}
+function v2StoryHook(r, R){
+  if (!V2 || !r || !r.act || r.act.quiet || r.act.kind !== 'story') return;
+  const lm = LM(), text = (r.act.story && r.act.story.text) || '';
+  const ev = CURR.storyEvidence(v2WordsFromRun(r.act), { names:CURR.properNames(text), wcpm:R && R.wcpm, band:CURR.currentBand(lm), c:v2ReadConfidence(R) });
+  ev.forEach(e => CURR.record(lm, Object.assign(e, { sid:r.sessionId })));
+  CURR.commit(lm);
+}
+
+/* ---------- entry point: first card in the existing Practice screen (no new home UI) ---------- */
+function v2Start(){ beep('tap'); LM().placedAt ? v2Lesson() : v2PlacementIntro(); }
+const v2Hero = (n) => { try { return el('div',{class:'v2-hero', html:heroSVG(n || 130)}); } catch(e){ return el('div',{class:'v2-big-e'}, '⭐'); } };
+/* ---------- activity player (shared by lessons and placement) ---------- */
+const DECODE_DOMAINS = ['ph','dec','sw','pa'];
+function v2RunItems(items, o){
+  let i = 0; const results = [];
+  const lm = LM();
+  const step = () => {
+    if (i >= items.length) return o.onDone(results);
+    const it = items[i], sk = CURR.SKILL[it.skill], decodeItem = DECODE_DOMAINS.includes(sk.domain);
+    let tries = 0, helped = false, locked = false;
+    const fb = el('div',{class:'v2-fb'});
+    const nextBtn = el('button',{class:'btn big hidden', onclick:()=>{ i++; step(); }}, i < items.length - 1 ? 'Next ▶' : (o.finishLabel || 'Done ✓'));
+    const optBox = el('div',{class:'v2-opts' + (it.options.some(x => x.big) ? ' big' : '')});
+    const answer = (idx, btn) => {
+      if (locked) return;
+      const right = idx === it.answer;
+      tries++;
+      // first try counts as independent (unless help was used on a decoding item); a retry is always "assisted"
+      const ind = tries === 1 && !(helped && decodeItem);
+      if (!o.norecord) CURR.record(lm, { s:it.skill, k:right ? 1 : 0, n:1, ind, c:0.9, src:o.src || 'activity', sid:o.sid });
+      if (tries === 1) results.push({ skill:it.skill, ok:right, ind, role:it.role });
+      if (right){
+        locked = true; btn.classList.add('right'); beep('ok');
+        fb.innerHTML = '✨ ' + v2Esc(tries === 1 ? CURR_PRAISE() : 'You figured it out!') + ' <span class="muted">' + v2Esc(it.explain || '') + '</span>';
+        nextBtn.classList.remove('hidden');
+        if (it.word) say(it.word, { rate:0.8 });
+      } else if (o.mode === 'placement' || tries >= 2){
+        locked = true; btn.classList.add('wrong');
+        [...optBox.children][it.answer].classList.add('right');
+        fb.innerHTML = (o.mode === 'placement' ? '👍 Thanks! ' : '💡 ') + v2Esc(it.explain || '');
+        nextBtn.classList.remove('hidden');
+      } else {
+        btn.classList.add('wrong'); btn.disabled = true; beep('no');
+        fb.innerHTML = '💡 Not quite. Look again and try one more time!' + (it.explain && it.type === 'read' ? ' <button class="btn small blue" id="v2hint">🔊 Hear the word</button>' : '');
+        const hb = fb.querySelector('#v2hint'); if (hb) hb.onclick = () => { helped = true; say(it.word, { rate:0.7 }); };
+      }
+    };
+    it.options.forEach((op, idx) => {
+      const b = el('button',{class:'v2-opt' + (op.big ? ' big' : ''), 'data-ok': navigator.webdriver && idx === it.answer ? '1' : null}, el('span',{class:'v2-opt-t'}, op.t), op.label ? el('small',{}, op.label) : null);
+      b.onclick = () => answer(idx, b);
+      optBox.append(b);
+    });
+    const canHear = it.say && (it.type === 'hear' || it.type === 'pick');
+    const helpBtn = it.type === 'read' && o.mode !== 'placement' ? el('button',{class:'btn small gray', onclick:()=>{ helped = true; say(it.word, { rate:0.7 }); helpBtn.textContent = '🔊 heard (counts as help)'; }}, '🆘 Hear it') : null;
+    const roleTag = { gap:'🧱 Rebuild', review:'🔁 Review', confirm:'✅ Check', target:'🎯 New skill', target2:'🎯 Skill' }[it.role] || (o.mode === 'placement' ? '🧭 Reading check' : '');
+    const s = el('div',{class:'screen v2'},
+      el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>{ stopAll(); o.onQuit ? o.onQuit() : screenHome(); }}, '← Back'),
+        el('div',{class:'pageinfo'}, (o.title || 'Adventure') + ' · ' + (i + 1) + ' / ' + items.length), el('div',{style:'width:80px'})),
+      el('div',{class:'v2-steps'}, ...items.map((_, j) => el('span',{class:'v2-dot' + (j < i ? ' on' : j === i ? ' cur' : '')}))),
+      el('div',{class:'card v2-item'},
+        el('div',{class:'v2-role'}, roleTag, el('span',{class:'v2-skill'}, sk.kid)),
+        el('div',{class:'v2-prompt', html:v2Bold(it.prompt)}),
+        it.show ? el('div',{class:'v2-show'}, it.show) : null,
+        it.pic && it.type !== 'read' ? el('div',{class:'v2-pic'}, it.pic) : null,
+        el('div',{class:'row center'}, canHear ? el('button',{class:'btn small blue', onclick:()=>say(it.say, { rate:0.8 })}, it.type === 'hear' ? '🔊 Hear the word' : '🔊 Hear the question') : null, helpBtn),
+        optBox, fb, nextBtn));
+    show(s);
+    if (it.type === 'hear' || (o.mode === 'placement' && it.say && DECODE_DOMAINS.includes(sk.domain) && sk.domain === 'pa')) setTimeout(() => say(it.say, { rate:0.8 }), 350);
+  };
+  step();
+}
+const CURR_PRAISE = () => ['Yes! 🎉','You got it! ⭐','Awesome! 🙌','Spot on! 🌟','Nailed it! 💪'][Math.floor(Math.random() * 5)];
+
+/* ---------- placement: branching, tap-based, parent can pick a starting point ---------- */
+function v2PlacementIntro(){
+  const pickRow = el('div',{class:'v2-start'});
+  const choices = [['auto','✨ Let the check decide'],['letters','🔤 Still learning letters'],['words','🐣 Reads short words'],['sentences','📗 Reads simple books'],['chapter','📚 Reads chapter books']];
+  let choice = 'auto';
+  choices.forEach(([v, t]) => { const b = el('button',{class:'v2-chip' + (v === choice ? ' on' : ''), onclick:()=>{ choice = v; [...pickRow.children].forEach(c => c.classList.remove('on')); b.classList.add('on'); }}, t); pickRow.append(b); });
+  show(el('div',{class:'screen v2'},
+    el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()}, '← Back'), el('div'), el('div',{style:'width:80px'})),
+    el('div',{class:'card v2-intro'},
+      v2Hero(),
+      el('h1',{class:'title'}, 'Reading Check'),
+      el('p',{}, 'A few quick taps so the game knows exactly which skills to train. It gets harder until it finds your edge, then it stops. Most kids finish in 5 minutes.'),
+      el('p',{class:'muted'}, 'Grown-ups (optional): where do you think they are? The check still tests it.'), pickRow,
+      el('button',{class:'btn big', onclick:()=>v2Placement(choice)}, '▶ Start'))));
+}
+function v2Placement(choice){
+  const lm = LM(), sid = v2Sid(), P = CURR.placementStart(choice);
+  CURR.seed(Date.now());
+  const rung = () => {
+    const id = CURR.LADDER[P.i];
+    const items = [0, 1, 2].map(j => Object.assign(CURR.makeItem(id, 3, j), { skill:id }));
+    v2RunItems(items, { mode:'placement', src:'placement', norecord:true, sid, title:'Reading Check', finishLabel:'Next ▶', onQuit:screenHome,
+      onDone: res => {
+        CURR.placementStep(P, res.filter(r => r.ok).length, 3);
+        P.done ? finishCode() : rung();
+      } });
+  };
+  const finishCode = () => {
+    const r = CURR.applyPlacement(lm, P, sid);
+    // comprehension: one passage near the placed level, questions tagged by skill
+    const lib = v2Library().filter(b => Math.abs(b.band - r.band) <= 1 && b.qs.length >= 4);
+    const st = lib.sort((a, b) => Math.abs(a.band - r.band) - Math.abs(b.band - r.band) || a.analysis.words - b.analysis.words)[0];
+    if (!st) return done(r);
+    v2ReadAndAsk(st, { sid, src:'placement', title:'Reading Check', placement:true, onDone:o => { const q = o.quiz || []; CURR.applyCompPlacement(lm, q.filter(x => x.ok).length, q.length, r.band); done(r); } });
+  };
+  const done = r => {
+    CURR.commit(lm); save();
+    const B = CURR.BANDS[r.band], st = CURR.allStates(lm);
+    const strong = CURR.SKILLS.filter(s => CURR.isM(st[s.id])).slice(-4).map(s => s.kid);
+    confetti(60); beep('level');
+    show(el('div',{class:'screen v2 center'},
+      el('div',{class:'card v2-intro'},
+        v2Hero(), el('h1',{class:'title'}, 'Reading Check done!'),
+        el('p',{}, 'Your Skill Quests are ready. Each one trains the exact skill you need next.'),
+        strong.length ? el('p',{}, '💪 Already strong: ' + strong.join(', ')) : null,
+
+        el('button',{class:'btn big', onclick:()=>v2Lesson()}, '⚔️ Start first quest'),
+        el('button',{class:'btn gray small', onclick:()=>screenHome()}, 'Home'))));
+  };
+  rung();
+}
+
+/* ---------- story step: read (aloud with mic / grown-up scoring, or to yourself) then tagged questions ---------- */
+function v2ReadAndAsk(st, o){
+  const lm = LM();
+  const newWords = (o.check && o.check.stats.newVocab || []).slice(0, 3);
+  const choose = el('div',{class:'card v2-intro'},
+    el('div',{class:'v2-big-e'}, st.emoji || '📖'), el('h1',{class:'title'}, st.title),
+    newWords.length ? el('div',{class:'v2-treasure'}, el('b',{}, '💎 Treasure words: '), ...newWords.map(w => el('button',{class:'v2-chip', onclick:()=>say(w)}, '🔊 ' + w))) : null,
+    el('p',{}, o.placement ? 'Read this story, then answer the questions.' : 'How do you want to read today?'),
+    el('div',{class:'row center'},
+      el('button',{class:'btn big', onclick:()=>aloud()}, '🎤 Read out loud'),
+      el('button',{class:'btn big blue', onclick:()=>quiet()}, '🤫 Read to myself')),
+    el('p',{class:'muted'}, 'Out loud lets the game check every word. Tapping a word for help is fine: it just counts as practice, not as reading on your own.'));
+  show(el('div',{class:'screen v2'}, el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()}, '← Back'), el('div'), el('div',{style:'width:80px'})), choose));
+  const aloud = () => {
+    const act = { kind:'story', level:K.level, title:st.title, emoji:st.emoji, story:st, pages:storyPages(st.text), v2:true };
+    beginRun(act, { mode:'v2', onStop:screenHome, onDone:(res, a) => {
+      const sid = o.sid, words = v2WordsFromRun(a), c = v2ReadConfidence(res);
+      CURR.storyEvidence(words, { names:CURR.properNames(st.text), wcpm:res.wcpm, band:CURR.currentBand(lm), c }).forEach(e => CURR.record(lm, Object.assign(e, { sid, src:o.src || 'story' })));
+      o.read = { aloud:true, total:res.total, correct:res.correct, helped:res.helped, accuracy:res.accuracy, wcpm:res.wcpm, conf:c };
+      questions();
+    } });
+  };
+  const quiet = () => {
+    const t0 = Date.now();
+    show(el('div',{class:'screen v2'},
+      el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()}, '← Back'), el('div',{class:'pageinfo'}, st.title), el('div',{style:'width:80px'})),
+      el('div',{class:'card v2-read'}, ...st.text.split(/\n\s*\n/).map(p => el('p',{}, ...p.split(/(\s+)/).map(w => /\S/.test(w) ? el('span',{class:'v2-w', onclick:ev=>{ ev.target.classList.add('helped'); o.taps = (o.taps || 0) + 1; say(w.replace(/[^\w']/g, '')); }}, w) : w))),
+        el('button',{class:'btn big', onclick:()=>{ o.read = { aloud:false, ms:Date.now() - t0, taps:o.taps || 0 }; questions(); }}, 'I finished ✓'))));
+  };
+  const questions = () => {
+    const qs = st.qs.slice(0, 5).map(([q, opts, ans, tag]) => {
+      const sh = shuffle(opts.map((t, i) => ({ t, right:i === ans })));
+      return { skill:tag || CURR.tagQuestion(q), type:'pick', prompt:q, say:q, options:sh.map(x => ({ t:x.t })), answer:sh.findIndex(x => x.right), explain:'The answer: ' + opts[ans] + '.' };
+    });
+    // sequencing practice made from the story itself when that's the comprehension focus
+    if (o.compFocus === 'comp.sequence' && !qs.some(q => q.skill === 'comp.sequence')){
+      const sents = CURR.sentences(st.text).filter(s => CURR.tokens(s).length >= 4);
+      if (sents.length >= 4){
+        const a = sents[0], b = sents[Math.floor(sents.length / 2)], c2 = sents[sents.length - 1];
+        const sh = shuffle([a, b, c2]);
+        qs.push({ skill:'comp.sequence', type:'pick', prompt:'Which of these happened FIRST in the story?', options:sh.map(t => ({ t })), answer:sh.indexOf(a), explain:'First: “' + a + '”' });
+      }
+    }
+    v2RunItems(qs, { mode:o.placement ? 'placement' : 'lesson', src:o.src || 'story', sid:o.sid, title:st.title, onQuit:screenHome, onDone:res => { o.quiz = res; o.onDone(o); } });
+  };
+}
+
+/* ---------- the lesson: planner → activities → story → questions → summary ---------- */
+async function v2Lesson(){
+  stopAll();
+  const lm = LM(), before = CURR.allStates(lm), sid = v2Sid(), t0 = Date.now();
+  const plan = CURR.planLesson(lm, v2Library(), { recent:K.v2recent || [], seed:Date.now() });
+  // no library story fits → template forge (validated) — never serve a story that failed validation
+  if (!plan.story){
+    for (let n = 0; n < 4 && !plan.story; n++){
+      const f = CURR.forgeStory(plan, v2Theme(), n), v = CURR.validateStory(f, { known:plan.constraints.known, target:plan.constraints.target, band:plan.decodeBand, constraints:plan.constraints });
+      if (v.pass){ plan.story = f; plan.storyCheck = v; }
+    }
+  }
+  K.v2resume = { at:Date.now() }; save();
+  const brief = el('div',{class:'card v2-intro'},
+    v2Hero(),
+    el('h1',{class:'title'}, 'Today\'s Quest'),
+    el('div',{class:'v2-objs'}, ...plan.objectives.map(ob => el('div',{class:'v2-objrow'}, '🎯 ', el('b',{}, ob.kid)))),
+    el('p',{}, `${plan.activities.length} quick challenges` + (plan.story ? `, then the story “${plan.story.title}”.` : '.')),
+    el('details',{class:'v2-why'}, el('summary',{}, 'Grown-ups: why this lesson?'), ...plan.why.map(w => el('p',{}, w)),
+      plan.storyCheck ? el('p',{}, `Story check: ${plan.storyCheck.checks.filter(c => c.pass).length}/${plan.storyCheck.checks.length} constraints passed for this reader.`) : null),
+    el('button',{class:'btn big', onclick:()=>go()}, '⚔️ Begin'));
+  show(el('div',{class:'screen v2'}, el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()}, '← Back'), el('div'), el('div',{style:'width:80px'})), brief));
+  const out = { plan, sid };
+  const go = () => v2RunItems(plan.activities, { mode:'lesson', sid, title:'Training', finishLabel: plan.story ? 'To the story ▶' : 'Finish ✓', onQuit:screenHome,
+    onDone: res => { out.drills = res; plan.story ? v2ReadAndAsk(plan.story, { sid, check:plan.storyCheck, compFocus:plan.compFocus, onDone:o => { out.story = o; extras(); } }) : finish(); } });
+  // optional grown-up observations: expression/phrasing after an aloud read, retelling when it's on the frontier
+  const extras = () => {
+    const st = CURR.allStates(lm), askRetell = !CURR.isM(st['comp.retell']) && CURR.SKILL['comp.retell'].pre.every(p => CURR.isM(st[p]));
+    const askFlu = out.story && out.story.read && out.story.read.aloud;
+    if (!askRetell && !askFlu) return finish();
+    const rows = el('div',{});
+    const rate = (label, ids) => { const r = el('div',{class:'v2-rate'}, el('b',{}, label)); [1, 2, 3, 4].forEach(n => r.append(el('button',{class:'v2-chip', onclick:ev=>{ [...r.querySelectorAll('button')].forEach(b => b.classList.remove('on')); ev.target.classList.add('on'); ids.forEach(id => { out.rated = out.rated || {}; out.rated[id] = n; }); }}, ['','1 word-by-word','2 two-word bits','3 mostly phrases','4 smooth + expressive'][n]))); return r; };
+    if (askFlu) rows.append(rate('How did it sound? (NAEP fluency scale)', ['flu.expression','flu.phrasing']));
+    if (askRetell){
+      const r = el('div',{class:'v2-rate'}, el('b',{}, 'Retell: ask “Tell me the story.” Tap what they included:'));
+      ['Beginning','Middle','End','Main character'].forEach(p => r.append(el('label',{class:'v2-chk'}, (()=>{ const c = el('input',{type:'checkbox'}); c.onchange = () => { out.retell = out.retell || {}; out.retell[p] = c.checked; }; return c; })(), p)));
+      rows.append(r);
+    }
+    show(el('div',{class:'screen v2'}, el('div',{class:'card v2-intro'},
+      el('h2',{}, '👀 Grown-up check (optional)'), el('p',{class:'muted'}, 'Only a grown-up who listened should answer. Skipping is fine: nothing is guessed.'), rows,
+      el('div',{class:'row center'}, el('button',{class:'btn big', onclick:()=>{ save1(true); }}, 'Save'), el('button',{class:'btn gray', onclick:()=>finish()}, 'Skip')))));
+    const save1 = () => {
+      if (out.rated) Object.entries(out.rated).forEach(([id, n]) => CURR.record(lm, { s:id, k:n >= 3 ? 1 : 0, n:1, ind:true, c:0.9, src:'parent', sid }));
+      if (out.retell){ const got = ['Beginning','Middle','End','Main character'].filter(p => out.retell[p]).length; CURR.record(lm, { s:'comp.retell', k:got >= 3 ? 1 : 0, n:1, ind:true, c:0.9, src:'parent', sid, note:got + '/4 parts' }); }
+      finish();
+    };
+  };
+  const finish = () => {
+    const newly = CURR.commit(lm), after = CURR.allStates(lm);
+    const all = [...(out.drills || []), ...((out.story && out.story.quiz) || [])];
+    const right = all.filter(r => r.ok && r.ind).length;
+    const practiced = [...new Set(all.map(r => r.skill))];
+    const stars = 3 + right + newly.length * 5 + (todayLessons() === 0 ? 5 : 0);
+    K.stars += stars;
+    if (plan.story){ K.v2recent = [plan.story.id, ...(K.v2recent || []).filter(x => x !== plan.story.id)].slice(0, 12); }
+    const rd = out.story && out.story.read, qz = out.story && out.story.quiz;
+    K.sessions.unshift({ id:sid, date:new Date().toISOString(), level:K.level, title:'🗺️ ' + (plan.story ? plan.story.title : 'Skill training'), kind:'lesson2', mode:'lesson2',
+      total: rd && rd.total || 0, correct: rd && rd.correct || 0, helped: rd ? (rd.helped || rd.taps || 0) : 0,
+      accuracy: rd && rd.aloud ? Math.round(rd.accuracy * 1000) / 10 : (qz && qz.length ? Math.round(qz.filter(x => x.ok).length / qz.length * 1000) / 10 : 0),
+      wcpm: rd && rd.wcpm || null, quiz: qz && qz.length ? qz.filter(x => x.ok).length + '/' + qz.length : null, missed:[], stars, ms: Date.now() - t0,
+      v2:{ skills:practiced, drills:(out.drills || []).length, drillsRight:(out.drills || []).filter(x => x.ok && x.ind).length, assisted:all.filter(r => !r.ind).length, aloud:!!(rd && rd.aloud), conf: rd && rd.conf, mastered:newly, storyId: plan.story && plan.story.id, generated: plan.story && plan.story.generated || null } });
+    K.sessions = K.sessions.slice(0, 200);
+    delete K.v2resume; save();
+    if (newly.length){ confetti(90); beep('level'); } else { confetti(30); beep('star'); }
+    const moved = practiced.filter(id => before[id].state !== after[id].state);
+    show(el('div',{class:'screen v2'},
+      el('div',{class:'card v2-intro'},
+        v2Hero(),
+        el('h1',{class:'title'}, newly.length ? 'Skill mastered!' : 'Quest complete!'),
+        newly.length ? el('div',{class:'v2-mastered'}, ...newly.map(id => el('div',{class:'v2-mrow'}, '🏅 ', el('b',{}, CURR.SKILL[id].kid)))) : null,
+        el('p',{}, `+${stars} ⭐ for trying, getting answers right on your own, and finishing.`),
+        el('div',{class:'v2-skillsum'}, ...practiced.map(id => { const a = after[id], b = before[id], I = STATE_INFO[a.state];
+          return el('div',{class:'v2-srow'}, el('span',{class:'v2-dotc', style:`background:${I[1]}`}), el('span',{}, CURR.SKILL[id].kid), el('span',{class:'muted'}, (b.state !== a.state ? STATE_INFO[b.state][0] + ' → ' : '') + I[0])); })),
+        moved.length ? null : el('p',{class:'muted'}, 'Mastery needs the same skill right on more than one day, so keep coming back!'),
+        el('div',{class:'row center'}, el('button',{class:'btn big', onclick:()=>v2Lesson()}, '▶ Next quest'), el('button',{class:'btn gray', onclick:()=>screenHome()}, '🏠 Home')))));
+  };
+}
+function todayLessons(){ return (K.sessions || []).filter(s => s.kind === 'lesson2' && s.date && todayStr(new Date(s.date)) === todayStr()).length; }
+
+/* ---------- parent dashboard 2.0 ---------- */
+function v2Parent(which, tab){
+  which = which || kid; tab = tab || 'overview';
+  const k = DB.kids[which]; if (!k) return screenPlayers();
+  const prevK = K, prevKid = kid;
+  const lm = LM(k), st = CURR.allStates(lm), band = CURR.currentBand(lm), B = CURR.BANDS[band];
+  document.body.className = 'parent';
+  const name = kidName(which);
+  const tabs = el('div',{class:'tabs'}, ...[['overview','Overview'],['skills','Skill map'],['history','History'],['library','Library'],['lab','Story Lab'],['controls','Controls']]
+    .map(([id, t]) => el('button',{class:'tab' + (tab === id ? ' active' : ''), onclick:()=>v2Parent(which, id)}, t)));
+  const kidTabs = el('div',{class:'row'}, ...playerIds(false).map(id => el('button',{class:'btn small ' + (id === which ? '' : 'gray'), onclick:()=>v2Parent(id, tab)}, kidName(id))));
+  const body = el('div',{});
+  const sess = (k.sessions || []);
+  if (tab === 'overview'){
+    const read = sess.filter(s => ['normal','lesson2'].includes(s.mode));
+    const mins = Math.round(sess.reduce((t, s) => t + (s.ms || 0), 0) / 60000);
+    const codeSk = CURR.SKILLS.filter(s => ['ph','dec','sw'].includes(s.domain));
+    const codeIds = new Set(codeSk.map(s => s.id)), okEv = lm.ev.filter(e => codeIds.has(e.s) && e.ind && e.c >= CURR.CONFIG.minConfidence);
+    const ind = [okEv.reduce((t, e) => t + e.k, 0), okEv.reduce((t, e) => t + e.n, 0)];
+    const ast = codeSk.reduce((t, s) => { const m = lm.sum[s.id]; return m ? [t[0] + m.ak, t[1] + m.an] : t; }, [0, 0]);
+    const mReal = CURR.SKILLS.filter(s => CURR.isM(st[s.id]) && !st[s.id].inferred).length, mInf = CURR.SKILLS.filter(s => st[s.id].inferred).length;
+    K = k; const plan = lm.placedAt ? CURR.planLesson(lm, [], {}) : null; K = prevK;
+    const stat = (b, t) => el('div',{class:'stat'}, el('b',{}, b), el('span',{}, t));
+    body.append(
+      el('div',{class:'card'}, el('h2',{}, `${B.icon} ${name}: Storyborne Level ${band} · ${B.name}`), el('p',{class:'muted'}, B.desc + (lm.placedAt ? '' : ' · Reading Check not taken yet.')),
+        el('div',{class:'stats'}, stat(read.length, 'reading sessions'), stat(mins + ' min', 'total time'), stat(read.filter(s => s.kind === 'story' || s.v2 && s.v2.storyId).length, 'stories'),
+          stat(ind[1] ? Math.round(ind[0] / ind[1] * 100) + '%' : '–', 'independent word accuracy (' + ind[1] + ' words)'),
+          stat(ast[1] ? Math.round(ast[0] / ast[1] * 100) + '%' : '–', 'with help (' + ast[1] + ', not counted)'),
+          stat(mReal + (mInf ? ' + ' + mInf : ''), 'skills mastered' + (mInf ? ' (+ placement-inferred)' : '')))),
+      plan ? el('div',{class:'card'}, el('h2',{}, '🎯 Current focus'), ...plan.why.map(w => el('p',{}, w))) : null,
+      el('div',{class:'card'}, el('h2',{}, '💡 Recommendations'), el('p',{class:'muted'}, 'Generated only from recorded evidence.'),
+        ...CURR.recommendations(lm, name).map(r => el('div',{class:'v2-rec ' + r.kind}, { win:'🏅', alert:'⚠️', next:'➡️', insight:'🔎', practice:'🏠', support:'🤝', note:'ℹ️' }[r.kind] + ' ' + r.text))));
+  }
+  if (tab === 'skills'){
+    body.append(el('div',{class:'card'}, el('h2',{}, 'Skill map'), el('div',{class:'v2-legend'}, ...Object.entries(STATE_INFO).map(([, I]) => el('span',{}, el('i',{style:`background:${I[1]}`}), I[0])), el('span',{}, el('i',{class:'inf'}), 'Inferred from placement')),
+      ...CURR.DOMAINS.map(D => el('div',{class:'v2-domain'}, el('h3',{}, D.icon + ' ' + D.name),
+        el('div',{class:'v2-chips'}, ...CURR.SKILLS.filter(s => s.domain === D.id).map(s => { const x = st[s.id], I = STATE_INFO[x.state];
+          return el('button',{class:'v2-skchip' + (x.inferred ? ' inf' : ''), style:`--sc:${I[1]}`, onclick:()=>v2SkillModal(lm, s.id)},
+            el('span',{class:'v2-skb'}, 'L' + s.band), el('span',{}, s.name), el('small',{}, x.n ? Math.round(x.acc * 100) + '% · ' + x.n : I[0])); }))))));
+  }
+  if (tab === 'history'){
+    const t = el('table',{}, el('tr',{}, ...['Date','Activity','Time','Accuracy','Questions','Help','Mode','Skills'].map(h => el('th',{}, h))));
+    sess.slice(0, 60).forEach(s => { const d = new Date(s.date);
+      t.append(el('tr',{}, el('td',{}, d.toLocaleDateString(undefined, { month:'short', day:'numeric' })), el('td',{}, s.title), el('td',{}, s.ms ? Math.max(1, Math.round(s.ms / 60000)) + 'm' : '–'),
+        el('td',{}, s.total || s.v2 ? (s.accuracy ?? '–') + '%' : '–'), el('td',{}, s.quiz || '–'), el('td',{}, s.helped || (s.v2 && s.v2.assisted) || 0),
+        el('td',{}, s.v2 ? (s.v2.aloud ? '🎤 aloud' + (s.v2.conf < 0.6 ? ' (low conf.)' : '') : '🤫 quiet') : s.mode),
+        el('td',{style:'font-size:13px'}, s.v2 ? s.v2.skills.map(id => CURR.SKILL[id] ? CURR.SKILL[id].name : id).join(', ') : ''))); });
+    body.append(el('div',{class:'card'}, el('h2',{}, 'Reading history'), el('p',{class:'muted'}, 'Help = words tapped for help or retried answers. They are recorded but never count toward mastery.'), el('div',{style:'overflow-x:auto'}, t)));
+  }
+  if (tab === 'library'){
+    K = k; const lib = v2Library(); K = prevK;
+    const known = [...CURR.masteredSet(lm)];
+    const readIds = new Map(); sess.filter(s => s.v2 && s.v2.storyId).forEach(s => { if (!readIds.has(s.v2.storyId)) readIds.set(s.v2.storyId, s); });
+    const rows = lib.slice().sort((a, b) => a.band - b.band || a.analysis.fk - b.analysis.fk).map(b => {
+      const v = CURR.validateStory(b, { known, band:Math.max(1, band) }), r = readIds.get(b.id);
+      return el('tr',{ onclick:()=>v2CheckModal(b, v), style:'cursor:pointer' }, el('td',{}, b.emoji + ' ' + b.title), el('td',{}, 'L' + b.band), el('td',{}, b.analysis.fk), el('td',{}, b.analysis.words),
+        el('td',{style:'font-size:13px'}, b.analysis.patterns.map(p => CURR.SKILL[p.skill].kid).slice(0, 3).join(', ')), el('td',{}, v.pass ? '✅' : '✗ ' + v.failed.length),
+        el('td',{}, r ? new Date(r.date).toLocaleDateString(undefined, { month:'short', day:'numeric' }) + ' · ' + (r.quiz || '') : ''));
+    });
+    body.append(el('div',{class:'card'}, el('h2',{}, `Story library (${lib.length})`), el('p',{class:'muted'}, `Every story is analysed by the engine: level, readability (FK), phonics patterns, and whether it passes validation for ${name} right now. Tap a story to see its checks.`),
+      el('div',{style:'overflow-x:auto;max-height:560px;overflow-y:auto'}, el('table',{}, el('tr',{}, ...['Story','Level','FK','Words','Practices','Fits now','Last read'].map(h => el('th',{}, h))), ...rows))));
+  }
+  if (tab === 'lab') body.append(v2Lab(k, lm, band));
+  if (tab === 'controls'){
+    body.append(el('div',{class:'card'}, el('h2',{}, 'Controls'),
+      el('div',{class:'row'}, el('button',{class:'btn', onclick:async ()=>{ const ok = await modal(el('p',{}, `Re-run the Reading Check for ${name}? Their evidence history is kept.`), [['Re-run','',1],['Cancel','gray',0]]); if (ok){ lm.placedAt = null; lm.placed = {}; save(); v2Parent(which, 'controls'); } }}, '🧭 Re-run Reading Check next time')),
+      el('p',{}, 'Story theme (never overrides the curriculum):'),
+      el('div',{class:'row'}, ...Object.entries(CURR.THEMES).map(([id, T]) => el('button',{class:'v2-chip' + ((k.v2theme || (trackOf(which) === 'daughter' ? 'fantasy' : 'animals')) === id ? ' on' : ''), onclick:()=>{ k.v2theme = id; save(); v2Parent(which, 'controls'); }}, T.icon + ' ' + id))),
+      el('p',{class:'muted'}, 'Microphone: listening runs in the browser only (Safari speech recognition). No audio is stored unless “Save audio recordings” is on in the main grown-ups page. Grown-up scoring mode is the most accurate option.'),
+      el('div',{class:'row'}, el('button',{class:'btn gray', onclick:()=>{ const blob = new Blob([JSON.stringify({ name, lm, sessions:sess }, null, 1)], { type:'application/json' }); const a = el('a',{ href:URL.createObjectURL(blob), download:name + '-reading-profile.json' }); document.body.append(a); a.click(); a.remove(); }}, '⬇️ Export reading profile'),
+        el('button',{class:'btn red', onclick:async ()=>{ const ok = await modal(el('p',{}, `Delete ${name}'s 2.0 skill profile (evidence log)? Stories, stars and items stay.`), [['Delete','red',1],['Cancel','gray',0]]); if (ok){ delete k.lm; save(); v2Parent(which, 'controls'); } }}, '🗑️ Delete skill profile'))));
+  }
+  show(el('div',{class:'screen parent-screen v2'},
+    el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenParent(which)}, '← Grown-ups'), el('div',{class:'pageinfo'}, '📊 Reading Skills'), el('button',{class:'btn small', onclick:()=>{ if (prevKid) screenHome(); else screenProfiles(); }}, 'Exit')),
+    kidTabs, tabs, body));
+}
+function v2Spark(ser){
+  if (!ser || ser.length < 2) return null;
+  const pts = ser.filter(x => x[2]).map(x => x[1] / x[2]); if (pts.length < 2) return null;
+  const w = 260, h = 60, d = pts.map((p, i) => (i ? 'L' : 'M') + (i / (pts.length - 1) * w).toFixed(1) + ' ' + (h - 4 - p * (h - 8)).toFixed(1)).join(' ');
+  return el('div',{html:`<svg viewBox="0 0 ${w} ${h}" class="v2-spark"><line x1="0" x2="${w}" y1="${h - 4 - .9 * (h - 8)}" y2="${h - 4 - .9 * (h - 8)}" stroke="#22c55e" stroke-dasharray="4 4" opacity=".6"/><path d="${d}" fill="none" stroke="#6366f1" stroke-width="3" stroke-linejoin="round"/></svg>`});
+}
+function v2SkillModal(lm, id){
+  const s = CURR.SKILL[id], x = CURR.skillState(lm, id), I = STATE_INFO[x.state], sm = lm.sum[id] || {};
+  const evs = lm.ev.filter(e => e.s === id).slice(-10).reverse();
+  modal(el('div',{class:'v2-skillmodal'},
+    el('h2',{}, s.name), el('div',{class:'v2-state', style:`background:${I[1]}`}, I[0] + (x.inferred ? ' (from placement)' : '')),
+    el('p',{}, s.desc), el('p',{class:'muted'}, 'Example: ' + s.ex),
+    el('p',{}, el('b',{}, 'Why: '), x.why),
+    el('p',{class:'muted'}, `Mastery rule: ${Math.round(s.crit.acc * 100)}%+ on ${s.crit.n}+ independent items, across ${CURR.CONFIG.minSessions}+ sessions on ${CURR.CONFIG.minDays}+ days. Help and low-confidence checks don't count.`),
+    el('p',{}, `Independent: ${sm.ik || 0}/${sm.in || 0} · With help: ${sm.ak || 0}/${sm.an || 0}` + (x.lowConf ? ` · Low-confidence (excluded): ${x.lowConf}` : '')),
+    s.pre.length ? el('p',{}, 'Needs first: ' + s.pre.map(p => CURR.SKILL[p].name).join(', ')) : null,
+    v2Spark(lm.series[id]),
+    evs.length ? el('table',{}, el('tr',{}, ...['When','Result','Source','Counted?'].map(h => el('th',{}, h))), ...evs.map(e => el('tr',{}, el('td',{}, new Date(e.t).toLocaleDateString(undefined, { month:'short', day:'numeric' })), el('td',{}, e.k + '/' + e.n + (e.note ? ' · ' + e.note : '')), el('td',{}, e.src), el('td',{}, e.ind && e.c >= CURR.CONFIG.minConfidence ? '✓' : e.ind ? 'low conf.' : 'helped')))) : el('p',{class:'muted'}, 'No evidence yet.')),
+    [['Close','',0]]);
+}
+function v2CheckModal(story, v){
+  modal(el('div',{class:'v2-skillmodal'}, el('h2',{}, (story.emoji || '') + ' ' + story.title),
+    el('div',{class:'v2-state', style:`background:${v.pass ? '#22c55e' : '#ef4444'}`}, v.pass ? 'Passes validation' : `Fails ${v.failed.length} check${v.failed.length > 1 ? 's' : ''}`),
+    el('table',{}, ...v.checks.map(c => el('tr',{}, el('td',{}, c.pass ? '✅' : '❌'), el('td',{}, c.label), el('td',{}, String(c.value)), el('td',{class:'muted'}, String(c.limit))))),
+    el('details',{}, el('summary',{}, 'Story text'), el('p',{style:'white-space:pre-wrap'}, story.text))), [['Close','',0]]);
+}
+
+/* ---------- Story Lab: AI (when available) or template generation, always validated ---------- */
+function v2Lab(k, lm, band){
+  const box = el('div',{class:'card'});
+  const prevK = K; K = k; const plan = CURR.planLesson(lm, [], { seed:Date.now() }); K = prevK;
+  const req = CURR.generationRequest(plan, { theme:k.v2theme || 'fantasy' });
+  const out = el('div',{});
+  const ta = el('textarea',{rows:8, placeholder:'Paste a story here to check it against this reader… (blank line between paragraphs)', style:'width:100%;font-size:16px'});
+  const showResult = (story, v, note) => {
+    out.innerHTML = '';
+    out.append(el('h3',{}, (v.pass ? '✅ ' : '❌ ') + story.title + (note ? ' · ' + note : '')),
+      el('p',{style:'white-space:pre-wrap;background:#f8fafc;padding:12px;border-radius:12px'}, story.text),
+      story.qs && story.qs.length ? el('ol',{}, ...story.qs.map(q => el('li',{}, q[0] + ' ', el('small',{class:'muted'}, '(' + (CURR.SKILL[q[3] || CURR.tagQuestion(q[0])] || {}).name + ')')))) : null,
+      el('table',{}, ...v.checks.map(c => el('tr',{}, el('td',{}, c.pass ? '✅' : '❌'), el('td',{}, c.label), el('td',{}, String(c.value)), el('td',{class:'muted'}, String(c.limit))))),
+      v.pass ? el('button',{class:'btn green', onclick:()=>{ k.v2custom = (k.v2custom || []).concat([{ title:story.title, emoji:story.emoji || '✨', text:story.text, qs:story.qs }]).slice(-40); V2LIB = null; save(); out.prepend(el('p',{class:'banner'}, 'Added to the library. Lessons can now pick it.')); }}, '➕ Add to library') : el('p',{class:'muted'}, 'Not added: a story must pass every check before a child sees it.'));
+  };
+  const validate = s => CURR.validateStory(s, { known:plan.constraints.known, target:plan.constraints.target, band:plan.decodeBand, constraints:plan.constraints });
+  const aiBtn = el('button',{class:'btn hidden'}, '✨ Generate with AI');
+  (async () => { try { const sample = window.claude && await window.claude.use('sample'); if (!sample) return; aiBtn.classList.remove('hidden');
+    aiBtn.onclick = async () => {
+      aiBtn.disabled = true; let failed = null, last = null;
+      for (let attempt = 1; attempt <= 3; attempt++){
+        out.innerHTML = ''; out.append(el('p',{}, `Writing draft ${attempt}… then checking it against ${k === prevK ? 'this reader' : 'the profile'}.`));
+        try {
+          const j = await sample.json(CURR.generationPrompt(req, failed), { modelTier:'default' });
+          const story = { title:j.title || 'New story', emoji:'✨', text:String(j.text || ''), qs:(j.questions || []).map(q => [q.q, q.choices, q.answer]), generated:'ai' };
+          const v = validate(story); last = [story, v];
+          if (v.pass){ showResult(story, v, 'AI draft ' + attempt + ' passed'); break; }
+          failed = v.failed;
+          if (attempt === 3) showResult(story, v, 'AI failed 3 times; not served');
+        } catch(e){ out.innerHTML = ''; out.append(el('p',{}, 'AI unavailable right now (' + (e.code || e.message || 'error') + '). Use the template generator.')); break; }
+      }
+      aiBtn.disabled = false;
+    }; } catch(e){} })();
+  box.append(el('h2',{}, '🧪 Story Lab'),
+    el('p',{class:'muted'}, 'The curriculum engine fills the request below. A generator (AI or template) writes the story. The validator checks it deterministically against this reader before it can be used.'),
+    el('details',{}, el('summary',{}, 'Generation request (from the curriculum engine)'), el('pre',{style:'white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto'}, JSON.stringify(req, null, 1))),
+    el('div',{class:'row'}, aiBtn,
+      el('button',{class:'btn blue', onclick:()=>{ const n = Math.floor(Math.random() * 1000); const f = CURR.forgeStory(plan, k.v2theme || 'fantasy', n); showResult(f, validate(f), 'template'); }}, '🧩 Template story'),
+      el('button',{class:'btn gray', onclick:()=>{ const t = ta.value.trim(); if (!t) return; const qs = []; showResult({ title:'Pasted story', text:t, qs }, validate({ text:t, qs }), 'pasted (add 4+ questions to pass)'); }}, '🔍 Check pasted text')),
+    ta, out);
+  return box;
+}
+
+const _screenParent = screenParent;
+screenParent = function(which){
+  _screenParent(which);
+  const scr = document.querySelector('#app .screen'); if (!scr || !V2) return;
+  const w = CLOUD.editing || which || playerIds(false)[0];
+  const b = el('div',{class:'card v2-parent-cta'}, el('b',{}, '📊 Reading Skills'), el('span',{class:'muted'}, 'Skill map, evidence, recommendations, story library and Story Lab'), el('button',{class:'btn', onclick:()=>v2Parent(w)}, 'Open'));
+  const tabs = scr.querySelector('.tabs'); tabs ? tabs.after(b) : scr.prepend(b);
+};
+
 /* ---------------- boot ---------------- */
 showTitleScreen();
 window.addEventListener('pagehide', stopAll);
