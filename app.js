@@ -487,7 +487,7 @@ function cloudApply(key, snap){
     if (stableStr(merged) !== stableStr(remoteFull)){ CLOUD.dirty[key] = true; CLOUD.last[key] = null; if (fromServer) cloudPush(key, false, true); }
     else CLOUD.last[key] = JSON.stringify(merged);
     try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch(e){}
-    if (onCloudUpdate) onCloudUpdate();
+    cloudRedraw();
     return;
   }
   // after the first sync, a newer cloud save wins; on a device's very first sync, keep whichever copy has more progress.
@@ -509,7 +509,14 @@ function cloudApply(key, snap){
   }
   CLOUD.last[key] = addLocal ? null : JSON.stringify(cloudBody(key)); setCloudTs(key, d.ts);
   try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch(e){}
-  if (onCloudUpdate) onCloudUpdate();
+  cloudRedraw();
+}
+// cloud changes can arrive in bursts (two iPads syncing): redraw once, after things settle, never more than every 1.5 s
+let cloudRedrawT = null, cloudRedrawAt = 0;
+function cloudRedraw(){
+  clearTimeout(cloudRedrawT);
+  const wait = Math.max(400, 1500 - (Date.now() - cloudRedrawAt));
+  cloudRedrawT = setTimeout(() => { cloudRedrawAt = Date.now(); if (onCloudUpdate) onCloudUpdate(); }, wait);
 }
 // On the GitHub site, check now and then whether a newer version was published; offer a Refresh.
 // (Inside Claude, a new artifact version reloads open pages by itself.)
@@ -1039,6 +1046,11 @@ function pickPlayer(id){
   if (P && P.pin) return screenKidPin(id);
   enterKid(id);
 }
+function heroArt3Migrate(){
+  if (!K || !K.hero || K.hero.av3 || HERO_CLASSIC) return;
+  const girl = heroKidKey() === 'daughter';
+  K.hero.av3 = 1; K.hero.hairColor = girl ? '#7c3aed' : '#1f1b18'; if (girl) K.hero.hairStyle = 'short'; save();
+}
 function enterKid(k){
   if (k === 'dev'){ DB.devOn = true; DB.players.dev = DB.players.dev || { name:DB.devName || 'The Wizard', track:'daughter', style:'boy', wizard:true, order:99 }; DB.kids.dev = DB.kids.dev || freshKid(); DB.kids.dev.avatar = Object.assign({ base:null, owned:[], equipped:{} }, DB.kids.dev.avatar || {}); }
   setKid(k);
@@ -1050,6 +1062,7 @@ function enterKid(k){
   }
   // Gianna reads quietly, so she skips the read-aloud placement check (a grown-up can set her rank)
   if (!K.placed && trackOf(k) === 'daughter'){ K.placed = true; K.level = K.level || 1; awardTrophiesUpTo(K.level); save(); }
+  try { heroArt3Migrate(); } catch(e){}
   if (!K.placed) screenPlacementIntro(); else if (!K.avatar.base) screenAvatarPick(); else screenHome();
 }
 
@@ -1144,11 +1157,7 @@ function screenHome(msg){
     // Gianna: three sections, read quietly, 5 questions each
     const st = nextQuietStory(), book = currentBook(), bs = book && bookState(book.id);
     cards.push(
-      st ? el('div',{class:'card next-card series-card'},
-        el('div',{class:'series-tag'},'📖 Short Stories'), COUNTS_TAG(),
-        el('h2',{}, st.emoji + ' ' + st.title),
-        el('p',{},'Read it to yourself, then answer 5 questions. Highlight clues as you go!'),
-        el('button',{class:'btn big', onclick:()=>{ beep('tap'); startQuietStory(); }},'▶ Read')) : null,
+      choiceCard(),
       book ? el('div',{class:'card next-card series-card'},
         el('div',{class:'series-tag'},'📚 Chapter Books'), COUNTS_TAG(),
         el('h2',{}, book.emoji + ' ' + book.title),
@@ -1167,15 +1176,7 @@ function screenHome(msg){
       el('div',{class:'series-tag'}, L.kind === 'letters' ? '🔤 Practice' : '⭐ Practice'), COUNTS_TAG(),
       el('h2',{}, L.kind === 'letters' ? 'Letter Sounds Round' : L.title + ' Round'), el('p',{}, L.intro),
       el('button',{class:'btn big', onclick:()=>{ beep('tap'); startActivity(); }},'▶ Start')));
-  if (TK !== 'daughter'){
-    seriesAt(K.level).forEach(sid => {
-      const st = storyFor(K.level, sid).story, info = (T.series||{})[sid] || { name:'', emoji:'' };
-      cards.push(el('div',{class:'card next-card series-card'},
-        el('div',{class:'series-tag'}, info.emoji + ' ' + info.name), COUNTS_TAG(),
-        el('h2',{}, st.emoji + ' ' + st.title), el('p',{}, 'Read it out loud, then answer questions!'),
-        el('button',{class:'btn big', onclick:()=>{ beep('tap'); startActivity(sid); }},'▶ Read')));
-    });
-  }
+  if (TK !== 'daughter'){ const cc = choiceCard(); if (cc) cards.push(cc); }
   if (TK !== 'daughter' && todo.length) cards.push(el('div',{class:'card next-card practice-card'},
     el('div',{class:'series-tag'},'🎯 My Words'),
     el('h2',{}, `${todo.length} tricky word${todo.length>1?'s':''} to practice`),
@@ -2090,6 +2091,7 @@ const quizLevelOf = id => { const P = playerOf(id), k = DB.kids[id], lv = k ? k.
   const q = P && P.quiz ? P.quiz : trackOf(id) === 'daughter' ? 'challenge' : 'standard';
   return q === 'challenge' && trackOf(id) === 'daughter' && lv >= 5 ? 'expert' : q; };   // Gia: Challenge becomes Expert from Rank 5
 function screenQuiz(){
+  if (run.act.boss && !run.opts.boss) run.opts.boss = run.act.boss;   // Gianna's boss read arrives here before opts are set
   const st = run.act.story;
   let qs = null;
   const lvl = quizLevelOf(kid);
@@ -2114,12 +2116,32 @@ function screenQuiz(){
   if (!qs || qs.length < 3) qs = st.qs.slice(0, 5).map(([q, opts, ans]) => ({ q, opts: shuffle(opts.map((o,i)=>({ t:o, right:i===ans }))) }));
   if (!qs.extra){ try { qs.extra = shuffle(expertExtras(st)).filter(x => !qs.some(y => y.q === x.q)); } catch(e){ qs.extra = []; } }
   run.quiz = { qs, i:0, correct:0 };
+  // boss battles: every answer is saved the moment it's tapped, so leaving the game can't erase a wrong answer
+  if (run.opts.boss){
+    const lv = run.act.level, saved = K.bossRun;
+    if (saved && saved.level === lv && saved.date === todayStr() && !saved.done && saved.qs && saved.qs.length){
+      const rq = saved.qs.map(x => JSON.parse(JSON.stringify(x))); rq.extra = (saved.extra || []).map(x => JSON.parse(JSON.stringify(x)));
+      run.quiz = { qs: rq, i: Math.min(saved.answers.length, rq.length - 1), correct: saved.answers.filter(a => a.right).length, resumed: saved.answers.length };
+      if (saved.answers.length >= rq.length){ run.quiz.i = rq.length; return bossResult(); }
+    } else {
+      K.bossRun = { level: lv, date: todayStr(), qs: qs.map(x => ({ q:x.q, think:x.think, opts:x.opts })), extra: (qs.extra || []).slice(0, 6), answers: [], done:false };
+      save();
+    }
+  }
   renderQuestion();
 }
+function bossSaveAnswer(item, right, t){
+  const br = K.bossRun; if (!run || !run.opts.boss || !br || br.done) return;
+  br.qs[run.quiz.i] = { q:item.q, think:item.think, opts:item.opts };      // a power may have swapped the question: keep the one she saw
+  br.answers[run.quiz.i] = { right: !!right, t };
+  save();
+}
+function bossResting(level){ const br = K.bossRun; return !!(br && br.level === level && br.date === todayStr() && br.done && !br.won); }
 function renderQuestion(){
   const Q = run.quiz, item = Q.qs[Q.i];
   let answered = false;
   const fb = el('div',{class:'feedback'});
+  if (run.opts.boss && Q.resumed && Q.i === Q.resumed){ fb.textContent = `🔒 Your first ${Q.resumed} answer${Q.resumed > 1 ? 's are' : ' is'} saved (${Q.correct} right). Keep going!`; fb.style.color = '#b45309'; }
   const nextBtn = el('button',{class:'btn hidden', onclick:()=>{ Q.i++; Q.i < Q.qs.length ? renderQuestion() : run.opts.boss ? bossResult() : (run.opts.focus ? storyBuilder(run.opts.focus, screenResults) : screenResults()); }}, Q.i < Q.qs.length-1 ? 'Next question ▶' : 'See my stars ⭐');
   const opts = el('div',{class:'options'});
   const proofBox = el('div',{class:'proof-box hidden'});
@@ -2130,6 +2152,7 @@ function renderQuestion(){
       if (answered) return;
       if (!o.right && Q.frostArmed === item && !item.frostUsed){ item.frostUsed = true; trackQ(item.q, false); b.classList.add('wrong', 'frozen'); b.disabled = true; beep('tap'); fb.textContent = PW() === 'invisible' ? '👻 It missed you! You were invisible. Try again!' : '❄️ Frozen! Time stopped. Try again!'; fb.style.color = '#0369a1'; return; }
       answered = true;
+      bossSaveAnswer(item, o.right, o.t);
       if (!item.frostUsed) trackQ(item.q, o.right);
       if (memory && !item.looked && o.right){ run.proofStars = (run.proofStars || 0) + 1; setTimeout(() => { fb.textContent += '  🧠 Memory bonus +1 ⭐'; }, 30); }
       if (memory) reveal(false);
@@ -2441,6 +2464,7 @@ async function commitResults(stars, quiz){
   const rec = { id:r.sessionId, date: now.toISOString(), level:a.level, title:a.title, kind:a.kind, mode:r.opts.mode, series:a.series||null,
     total:R.total, correct:R.correct, helped:R.helped, accuracy: a.quiet && quiz ? Math.round(quiz.c / quiz.t * 1000)/10 : Math.round(R.accuracy*1000)/10, wcpm:R.wcpm,
     quiz: quiz ? quiz.c + '/' + quiz.t : null, missed:[...new Set(R.missed)].slice(0,20), stars, hasRec: r.clips.length > 0, ms: elapsed, book: a.book ? a.book.id : null };
+  if (a.kind === 'story' && r.opts.mode === 'normal' && a.title){ if (!K.readCount) K.readCount = readCounts(); K.readCount[a.title] = (K.readCount[a.title] || 0) + 1; }
   K.sessions.unshift(rec); K.sessions = K.sessions.slice(0, 200);
   if (r.clips.length) idb.put(r.sessionId, r.clips);
   try { if (typeof v2StoryHook === 'function' && r.opts.mode === 'normal') v2StoryHook(r, R); } catch(e){ console.warn('v2 hook', e); }
@@ -4759,7 +4783,7 @@ function bossCard(){
         el('div',{class:'hp'}, el('div',{class:'hp-fill', style:'width:100%'}), el('span',{}, 'BOSS POWER 100%')),
         el('p',{class:'muted', style:'color:#fff;opacity:.9'}, TK === 'daughter'
           ? 'Read the boss story, then get 4 or 5 tough questions right to win!'
-          : 'Read the boss story out loud (90% of words right), then answer the questions to win!'),
+          : 'Read the boss story out loud, then get 4 or 5 of the 5 questions right to win!'),
         rec.tries ? el('p',{class:'muted', style:'color:#fde68a'}, `Battles tried: ${rec.tries}. You can do it!`) : null,
         el('button',{class:'btn big boss-btn', onclick:()=>{ beep('tap'); bossIntro(); }},'⚔️ BATTLE!'))));
 }
@@ -4780,8 +4804,10 @@ function bossIntro(level){
 function startBossBattle(level){
   level = level || K.level;
   const B = bossFor(level);
+  if (bossResting(level)){ beep('tap'); say('The boss is resting. Come back tomorrow for a rematch!'); modal(el('div',{}, el('div',{class:'big-e'},'😴'), el('h2',{}, B.name + ' is resting'), el('p',{}, 'You battled today. Answers count, so the rematch is tomorrow. Read a story today to get stronger!')), [['OK','',1]]); return; }
   K.bossLog = K.bossLog || {}; const rec = K.bossLog[level] = Object.assign({ tries:0, wins:0 }, K.bossLog[level] || {});
-  rec.tries++; save();
+  const resuming = K.bossRun && K.bossRun.level === level && K.bossRun.date === todayStr() && !K.bossRun.done;
+  if (!resuming) rec.tries++; save();
   const story = Object.assign({ series:'boss' }, B.story);
   if (TK === 'daughter'){
     startQuietRead(story, { storyKey:'boss_' + level, boss:B, level });
@@ -4791,15 +4817,12 @@ function startBossBattle(level){
     beginRun({ kind:'story', level, title:'⚔️ ' + story.title, emoji:B.e, story, storyKey:'boss_' + level, series:'boss', pages }, { mode:'normal', boss:B });
   }
 }
-// Boss power: Miles = 60% from reading + 40% from questions; Gianna = 100% from questions
+// Boss power: 100% from questions for both kids (the mic doesn't score)
 function bossPower(){
   if (!run || !run.opts.boss) return 100;
   const a = run.act, quiz = run.quiz;
   const qFrac = quiz ? quiz.correct / quiz.qs.length : 0;
-  if (a.quiet) return Math.max(0, Math.round(100 - 100 * qFrac));
-  let tot = 0, ok = 0;
-  a.pages.forEach(p => p.tokens.forEach((t,i) => { if (t.skip) return; tot++; if (p.status[i] === 'ok' && !p.helped[i]) ok++; }));
-  return Math.max(0, Math.round(100 - 60 * (tot ? ok / tot : 0) - 40 * qFrac));
+  void a; return Math.max(0, Math.round(100 - 100 * qFrac));   // questions decide the battle, so only questions drain the boss
 }
 function bossHud(hit){
   if (!run || !run.opts.boss){ const h = $('.boss-hud'); if (h) h.remove(); return; }
@@ -4814,6 +4837,7 @@ async function bossResult(){
   const r = run, a = r.act, B = r.opts.boss, R = r.reading || computeReading();
   const quiz = r.quiz ? { c:r.quiz.correct, t:r.quiz.qs.length } : { c:0, t:1 };
   const won = quiz.c / quiz.t >= 0.8;   // boss fights are won on the questions
+  if (K.bossRun && K.bossRun.level === a.level){ K.bossRun.done = true; K.bossRun.won = won; }
   const hud = $('.boss-hud'); if (hud) hud.remove();
   addReadingTime(Math.min(Date.now() - r.startedAt, MAX_ACTIVITY_MS));
   if (!a.quiet) trackWords(a);
@@ -4850,10 +4874,9 @@ async function bossResult(){
   } else {
     save();
     const pw = bossPower();
-    const tip = a.quiet ? `You got ${quiz.c} of ${quiz.t}. You need 4 or 5 to win.`
-      : `Words right: ${Math.round((R.accuracy||0)*100)}% (need 90%) · Questions: ${quiz.c} of ${quiz.t} (need ${Math.ceil(quiz.t*0.8)}).`;
+    const tip = `You got ${quiz.c} of ${quiz.t} questions right. You need ${Math.ceil(quiz.t*0.8)} to win.`;
     await modal(el('div',{}, el('div',{class:'big-e', html: bossArt(B, 140)}), el('h2',{}, `${B.name} is still standing!`),
-      el('p',{}, `Boss power left: ${pw}%. ${tip}`), el('p',{}, 'Every battle makes you stronger. Try again anytime!')), [['💪 Back','',1]]);
+      el('p',{}, `Boss power left: ${pw}%. ${tip}`), el('p',{}, 'Every battle makes you stronger. The boss rests tonight. Rematch tomorrow!')), [['💪 Back','',1]]);
     await checkBadges(); run = null; replay ? screenQuestMap() : screenHome();
   }
 }
@@ -5289,7 +5312,6 @@ const HERO_WAIST = HERO_CLASSIC ? .68 : .56, HERO_CLIP = HERO_CLASSIC ? .13 : .1
 function heroSVG(size = 200, override = {}){
   if (HERO_CLASSIC) return heroSVGClassic(size, override);
   const girl = heroKidKey() === 'daughter';
-  if (K && K.hero && !K.hero.av3 && !override.hero){ K.hero.av3 = 1; K.hero.hairColor = girl ? '#7c3aed' : '#1f1b18'; if (girl) K.hero.hairStyle = 'short'; }
   const h = Object.assign({ skin: SKIN_TONES[1], hairColor: girl ? '#7c3aed' : '#1f1b18', hairStyle: 'short', weapon: 'sword' }, K.hero || {}, override.hero || {});
   const G = heroState(), eq = Object.assign({}, G.eq, override.eq || {});
   const S = slot => (eq[slot] && eq[slot] !== 'traveler' && SET_BY_ID[eq[slot]]) || null;
@@ -5302,7 +5324,8 @@ function heroSVG(size = 200, override = {}){
   const lin = (stops, x2 = 0, y2 = 1) => { const id = u + 'g' + (++gn); defs.push(`<linearGradient id="${id}" x1="0" y1="0" x2="${x2}" y2="${y2}">${stops.map(([o, c, a]) => `<stop offset="${o}" stop-color="${c}"${a != null ? ` stop-opacity="${a}"` : ''}/>`).join('')}</linearGradient>`); return `url(#${id})`; };
   const radg = (stops) => { const id = u + 'g' + (++gn); defs.push(`<radialGradient id="${id}">${stops.map(([o, c, a]) => `<stop offset="${o}" stop-color="${c}"${a != null ? ` stop-opacity="${a}"` : ''}/>`).join('')}</radialGradient>`); return `url(#${id})`; };
   const cloth = c => lin([[0, sh(c, .25)], [.55, c], [1, sh(c, -.4)]], 1, 1);
-  const GL = `filter="url(#${u}gl)"`, BL = `filter="url(#${u}bl)"`;
+  const LOWFX = document.documentElement.classList.contains('lowfx');   // old iPads / phones: no blur filters (they re-render every frame and flicker)
+  const GL = LOWFX ? '' : `filter="url(#${u}gl)"`, BL = LOWFX ? '' : `filter="url(#${u}bl)"`;
   const P = (d, f, sw = 2.4, x = '') => `<path d="${d}" fill="${f}" stroke="${INKc}" stroke-width="${sw}" stroke-linejoin="round" stroke-linecap="round" ${x}/>`;
   const L = (d, c, w, x = '') => `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" ${x}/>`;
   const MIR = s => `<g transform="translate(300 0) scale(-1 1)">${s}</g>`;
@@ -8275,7 +8298,7 @@ function truesightTap(p, i){
   return true;
 }
 
-if (navigator.webdriver) window.__sb = { expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, GEAR_SETS, GEAR_SLOTS };
+if (navigator.webdriver) window.__sb = { expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, getDB: () => DB, GEAR_SETS, GEAR_SLOTS };
 mountEpicBg(); setInterval(mountEpicBg, 10 * 60 * 1000);
 if (navigator.webdriver) window.__landing = () => screenFamilyLogin();
 /* ======================= STORYBORNE 2.0: adaptive curriculum UI =======================
@@ -8751,7 +8774,7 @@ watchForUpdates();
 window.__RQ = { graphemes: typeof graphemes !== 'undefined' ? graphemes : null, align, wordMatch, tokenizeHeard, letterMatch, checkBadges, maybeStarfallChest, get run(){ return run; }, get DB(){ return DB; } };
 /* ---------- Quest Path: the leveling map (one chapter = one level) ---------- */
 let qpReturn = false;
-function qpState(){ if (!K.qp || K.qp.lvl !== K.level) K.qp = { lvl: K.level, spell: false, lab: false }; return K.qp; }
+function qpState(){ return K.qp && K.qp.lvl === K.level ? K.qp : { lvl: K.level, spell: false, lab: false }; }
 function qpGo(fn){ return () => { beep('tap'); qpReturn = true; fn(); }; }
 function qpStops(){
   const G = TK === 'daughter', L = levelDef(K.level), Q = qpState(), streak = Math.min(K.passStreak || 0, LEVEL_UP_STREAK), ready = bossReady();
@@ -8763,10 +8786,10 @@ function qpStops(){
     const sid = series[i % Math.max(1, series.length)]; const st = sid ? storyFor(K.level, sid).story : null;
     return { label: st ? (st.title.length > 18 ? 'Story Time' : st.title) : 'Story Time', ic:'📖', go: () => startActivity(sid) };
   };
-  const read = (i) => { const r = readGo(i), state = i < streak || ready ? 'done' : i === streak ? 'now' : 'next'; if (state === 'done') r.label = 'Great read!'; if (state === 'next') r.label = G ? 'Next story' : 'Next read'; return Object.assign(r, { kind:'read', state }); };
-  const spell = { kind:'spell', label: G ? 'Spelling Check' : 'Spelling', letters: G ? 'ABC' : 'CAT', state: Q.spell ? 'done' : 'bonus', go: () => { Q.spell = true; save(); G ? startSpellCheck() : (spellWords().length ? startSpelling() : startSpellCheck()); } };
+  const read = (i) => { const r = readGo(i), state = i < streak || ready ? 'done' : i === streak ? 'now' : 'next'; if (state === 'done') r.label = 'Great read!'; if (state === 'next') r.label = G ? 'Next story' : 'Next read'; if (state === 'now' && r.ic === '📖' && storyPool().length){ r.label = 'Pick a story'; r.go = storyPickerModal; } return Object.assign(r, { kind:'read', state }); };
+  const spell = { kind:'spell', label: G ? 'Spelling Check' : 'Spelling', letters: G ? 'ABC' : 'CAT', state: Q.spell ? 'done' : 'bonus', go: () => { Q.spell = true; K.qp = Q; save(); G ? startSpellCheck() : (spellWords().length ? startSpelling() : startSpellCheck()); } };
   const tricky = !G && practiceWords(K).length;
-  const lab = { kind:'lab', label: tricky ? 'Tricky Words' : 'Skill Lab', ic: tricky ? '🎯' : '🧠', state: Q.lab ? 'done' : 'bonus', go: () => { Q.lab = true; save(); tricky ? startPractice() : v2Start(); } };
+  const lab = { kind:'lab', label: tricky ? 'Tricky Words' : 'Skill Lab', ic: tricky ? '🎯' : '🧠', state: Q.lab ? 'done' : 'bonus', go: () => { Q.lab = true; K.qp = Q; save(); tricky ? startPractice() : v2Start(); } };
   const B = bossFor(K.level), beat = (K.bossesBeaten || []).includes(K.level);
   const boss = B ? { kind:'boss', label: B.name, B, state: beat ? 'done' : ready ? 'now' : 'locked', go: () => bossIntro() } : { kind:'gate', label: (G ? 'Rank ' : 'Level ') + (K.level + 1), state: ready ? 'now' : 'locked', go: () => {} };
   return [read(0), spell, read(1), lab, read(2), boss];
@@ -8874,6 +8897,94 @@ screenHome = function(msg){
     const tt = $('.tier-track'); if (tt){ tt.classList.add('qp-link'); tt.onclick = () => { beep('tap'); screenQuestPath(); }; }
     const lp = $('.lvl-progress'); if (lp && K.hero) lp.prepend(el('button',{class:'btn big qp-open', onclick:()=>{ beep('tap'); screenQuestPath(); }}, '🗺️ My Quest Path'));
   } catch(e){}
+};
+/* ---------- Story choice: 3 stories to pick from, reshuffled every visit; read counts kept forever ---------- */
+let lastChoices = [];
+function readCounts(k){
+  k = k || K;
+  if (k.readCount) return k.readCount;
+  const rc = {}; (k.sessions || []).forEach(s => { if (s.kind === 'story' && s.mode === 'normal' && s.title) rc[s.title] = (rc[s.title] || 0) + 1; });
+  return rc;
+}
+function storyPool(){
+  const n = K.level, max = T.levels.length, seen = new Set(), out = [];
+  const add = (st, lv, idx) => { if (!st || !st.text || seen.has(st.title)) return; seen.add(st.title); out.push({ st, lv, idx }); };
+  if (TK === 'daughter'){
+    quietPool().forEach(st => add(st, n, 0));
+    if (out.length < 6) [n + 1, n - 2, n - 3].forEach(l => { if (l >= 1 && l <= max) (DAUGHTER_EXTRA[l] || []).forEach(st => add(st, l, 0)); });
+    return out;
+  }
+  const series = seriesAt(n); if (!series.length) return out;
+  const fit = storyFit();
+  [n, n + fit, n - 1, n + 1].filter((v, i, a) => a.indexOf(v) === i && v >= 1 && v <= max).forEach(lv =>
+    (levelDef(lv).stories || []).forEach((st, idx) => { if (series.includes(st.series)) add(st, lv, idx); }));
+  return out;
+}
+function storyChoices(){
+  const rc = readCounts(), n = K.level, fit = TK === 'daughter' ? 0 : storyFit();
+  const pool = storyPool().map(c => Object.assign(c, { reads: rc[c.st.title] || 0 }));
+  if (pool.length <= 3) return pool;
+  const fresh = pool.filter(c => !lastChoices.includes(c.st.title));
+  const use = fresh.length >= 3 ? fresh : pool;          // a new set every visit when the pool is big enough
+  const score = c => c.reads * 3 + (c.lv === n || c.lv === n + fit ? 0 : .8) + Math.random() * 1.6;
+  const pick = use.map(c => [score(c), c]).sort((a, b) => a[0] - b[0]).slice(0, 3).map(x => x[1]);
+  lastChoices = pick.map(c => c.st.title);
+  return pick;
+}
+function launchChoice(c){
+  if (TK === 'daughter') return startQuietRead(c.st, { storyKey:'quiet_short' });
+  const a = { kind:'story', level:K.level, title:c.st.title, emoji:c.st.emoji, story:c.st, storyIndex:c.idx, storyKey:K.level + '_' + c.st.series, series:c.st.series, pages: storyPages(c.st.text) };
+  startStoryWithSkill(a);
+}
+function choiceTiles(onPick){
+  const ch = storyChoices(), n = K.level;
+  return el('div',{class:'choice-grid'}, ...ch.map(c => {
+    const info = TK === 'daughter' ? null : (T.series || {})[c.st.series];
+    return el('button',{class:'choice-tile' + (c.reads ? '' : ' fresh'), onclick:()=>{ beep('tap'); onPick && onPick(); launchChoice(c); }},
+      el('span',{class:'ct-badge' + (c.reads ? ' read' : '')}, c.reads ? `✓ Read ${c.reads}×` : '✨ New!'),
+      el('span',{class:'ct-e'}, c.st.emoji || '📖'),
+      el('span',{class:'ct-t'}, c.st.title),
+      el('span',{class:'ct-s'}, (info ? info.emoji + ' ' + info.name : TK === 'daughter' ? '📖 Short story' : '') + (c.lv > n ? ' · ⬆️ stretch' : c.lv < n ? ' · 🔁 review' : '')));
+  }));
+}
+function choiceCard(){
+  if (!storyPool().length) return null;
+  const card = el('div',{class:'card next-card choice-card'},
+    el('div',{class:'series-tag'}, '📖 Pick a story'), COUNTS_TAG(),
+    el('h2',{}, 'Choose 1 of 3'),
+    el('p',{}, TK === 'daughter' ? 'Read it to yourself, then answer 5 questions.' : 'Read it out loud, then answer questions!'));
+  let tiles = choiceTiles(); card.append(tiles,
+    el('button',{class:'btn small ghost choice-new', onclick:()=>{ beep('tap'); const t = choiceTiles(); tiles.replaceWith(t); tiles = t; }}, '🔀 Show me 3 different ones'));
+  return card;
+}
+function storyPickerModal(){
+  const ov = el('div',{class:'overlay choice-ov'});
+  const close = () => ov.remove();
+  const box = el('div',{class:'card choice-card choice-modal'},
+    el('div',{class:'row', style:'justify-content:space-between;align-items:center'}, el('h2',{style:'margin:0'}, '📖 Pick your story'), el('button',{class:'btn small gray', onclick:()=>{ beep('tap'); qpReturn = false; close(); }}, '✕')),
+    choiceTiles(close));
+  ov.append(box); ov.onclick = e => { if (e.target === ov){ qpReturn = false; close(); } };
+  document.body.append(ov);
+}
+// grown-ups: every story each kid has read, and how many times
+const _screenParentSR = screenParent;
+screenParent = function(which){
+  _screenParentSR(which);
+  try {
+    const scr = document.querySelector('#app .screen'); if (!scr) return;
+    const w = CLOUD.editing || which || playerIds(false)[0], k = DB.kids[w]; if (!k) return;
+    const rc = readCounts(k), last = {};
+    (k.sessions || []).forEach(s => { if (s.kind === 'story' && s.title && !last[s.title]) last[s.title] = s; });
+    const rows = Object.entries(rc).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const total = rows.reduce((t, r) => t + r[1], 0);
+    const tbl = el('table',{}, el('tr',{}, ...['Story','Times read','Last read','Last quiz'].map(h => el('th',{}, h))),
+      ...rows.map(([t, c]) => { const s = last[t]; return el('tr',{}, el('td',{}, t), el('td',{}, el('b',{}, c + '×')),
+        el('td',{}, s ? new Date(s.date).toLocaleDateString(undefined, { month:'short', day:'numeric' }) : '–'), el('td',{}, s && s.quiz ? s.quiz : '–')); }));
+    const card = el('details',{class:'card stories-read'}, el('summary',{}, el('b',{}, `📚 Stories read: ${rows.length} different · ${total} reads total`)),
+      rows.length ? tbl : el('p',{class:'muted'}, 'No stories read yet.'));
+    const anchor = scr.querySelector('.v2-parent-cta') || scr.querySelector('.tabs');
+    anchor ? anchor.after(card) : scr.prepend(card);
+  } catch(e){ console.warn('stories read', e); }
 };
 })();
 

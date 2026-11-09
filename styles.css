@@ -1976,3 +1976,23 @@ body:not(.parent) .lvl-how{ background:linear-gradient(180deg,#fff6d2 0%,#f4d27a
 .qp-open{ width:100%; margin-bottom:8px; }
 .tier-track.qp-link{ cursor:pointer; }
 @media (prefers-reduced-motion:reduce){ .qp-pulse{ animation:none; } }
+/* ---------- story choice ---------- */
+.choice-grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin:6px 0 10px; }
+.choice-tile{ position:relative; display:flex; flex-direction:column; align-items:center; gap:4px; padding:22px 8px 12px; border-radius:16px; border:3px solid #e2e8f0; background:#fff; cursor:pointer; font-family:inherit; color:#1e293b; box-shadow:0 3px 0 #cbd5e1; transition:transform .12s; }
+.choice-tile:active{ transform:translateY(2px); box-shadow:0 1px 0 #cbd5e1; }
+.choice-tile.fresh{ border-color:#facc15; box-shadow:0 3px 0 #eab308, 0 0 14px rgba(250,204,21,.45); }
+.ct-e{ font-size:40px; line-height:1; }
+.ct-t{ font-weight:800; font-size:16px; line-height:1.2; text-align:center; }
+.ct-s{ font-size:12px; color:#64748b; text-align:center; }
+.ct-badge{ position:absolute; top:-10px; left:50%; transform:translateX(-50%); white-space:nowrap; background:#facc15; color:#713f12; font:800 12px Nunito,Arial,sans-serif; padding:3px 10px; border-radius:999px; border:2px solid #fff; }
+.ct-badge.read{ background:#e2e8f0; color:#334155; }
+.choice-new{ margin-top:2px; }
+.choice-ov{ position:fixed; inset:0; background:rgba(15,23,42,.6); display:grid; place-items:center; z-index:9000; padding:16px; }
+.choice-modal{ width:min(720px, 96vw); }
+.stories-read summary{ cursor:pointer; }
+.stories-read table{ width:100%; margin-top:10px; }
+@media (max-width:560px){ .choice-grid{ grid-template-columns:1fr; } }
+/* old iPads: anime heroes hold still (moving SVG with gradients/filters flickers on them) */
+html.lowfx .hero-svg.ah .ah-cape, html.lowfx .hero-svg.ah .hero-aura, html.lowfx .hero-svg.ah .hero-spark, html.lowfx .hero-svg .hero-cape, html.lowfx .qp-pulse{ animation:none !important; }
+html.lowfx .hero-svg.ah{ will-change:auto; }
+html.lowfx .lp-flyer svg *, html.lowfx .lp-pheroes svg *{ animation:none !important; }
