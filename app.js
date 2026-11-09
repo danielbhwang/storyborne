@@ -1062,10 +1062,66 @@ function storyFor(levelN, series){
   const L = levelDef(levelN);
   if (!L.stories || !L.stories.length) return null;
   series = series || seriesAt(levelN)[0];
-  const list = L.stories.filter(s => s.series === series);
   const key = levelN + '_' + series;
-  const i = (K.storyIdx[key] || 0) % list.length;
-  return { story: list[i], index: i, key, series };
+  // never hand back a story the child read recently if another fits: rank by "how long ago was this read"
+  const recent = new Map(); (K.sessions || []).forEach((s, i) => { if (s.title && !recent.has(s.title)) recent.set(s.title, i); });
+  const fit = storyFit();                                         // -1 easier, 0 on level, +1 ready to stretch
+  const levelsTried = [levelN, levelN + fit, levelN - 1, levelN + 1].filter((v, i, a) => a.indexOf(v) === i && v >= 1 && v <= T.levels.length);
+  const cands = [];
+  levelsTried.forEach((lv, li) => {
+    const LL = levelDef(lv); (LL.stories || []).forEach((st, idx) => {
+      if (st.series !== series && lv !== levelN) return;           // other levels: same series only
+      if (st.series !== series) return;
+      cands.push({ st, lv, idx, order:li });
+    });
+  });
+  const start = (K.storyIdx[key] || 0);
+  const unread = cands.filter(c => !recent.has(c.st.title));
+  let pickC;
+  if (unread.length){
+    // prefer the calibrated level, then rotation order within it
+    const prefLv = fit && unread.some(c => c.lv === levelN + fit) ? levelN + fit : unread.some(c => c.lv === levelN) ? levelN : unread[0].lv;
+    const atLv = unread.filter(c => c.lv === prefLv);
+    pickC = atLv.find(c => c.lv !== levelN || c.idx >= start % Math.max(1, atLv.length)) || atLv[0];
+  } else pickC = cands.slice().sort((a, b) => recent.get(b.st.title) - recent.get(a.st.title))[0];   // all read: the one read longest ago
+  if (!pickC){ const list = L.stories.filter(x => x.series === series); return { story:list[0], index:0, key, series }; }
+  return { story: pickC.st, index: pickC.idx, key, series, stretch: pickC.lv - levelN };
+}
+/* reading calibration from the last few stories at this level: accuracy (read aloud) + questions */
+function storyFit(){
+  const rec = (K.sessions || []).filter(s => s.kind === 'story' && s.mode === 'normal').slice(0, 4);
+  if (rec.length < 3) return 0;
+  const acc = rec.reduce((t, s) => t + (s.accuracy || 0), 0) / rec.length;
+  const qz = rec.map(s => s.quiz ? s.quiz.split('/').map(Number) : null).filter(Boolean);
+  const q = qz.length ? qz.reduce((t, [a, b]) => t + a / b, 0) / qz.length : 1;
+  if (acc >= 95 && q >= .8) return 1;
+  if (acc < 85 || q < .6) return -1;
+  return 0;
+}
+
+/* ---- home navigation: three clear groups instead of one long row of buttons ---- */
+function homeNav(){
+  const tile = (icon, label, go, extra) => el('button',{class:'hn-tile' + (extra && extra.cls ? ' ' + extra.cls : ''), onclick:()=>{ beep('tap'); go(); }},
+    el('span',{class:'hn-ic'}, icon), el('span',{class:'hn-lb'}, label), extra && extra.badge ? el('span',{class:'hn-badge'}, extra.badge) : null);
+  let unread = 0; try { unread = WZ().letters.filter(l => !l.read).length; } catch(e){}
+  const pw = typeof PW === 'function' ? PW() : null;
+  const group = (cls, title, ...tiles) => el('div',{class:'hn-group ' + cls}, el('div',{class:'hn-title'}, title), el('div',{class:'hn-tiles'}, ...tiles));
+  return el('nav',{class:'home-nav'},
+    group('hn-explore', '🌍 Explore',
+      tile('🏰', 'Town Square', screenTownSquare, { cls:'big' }),
+      tile('🏗️', 'My World', screenWorld),
+      tile('🕯️', 'Great Hall', screenGreatHall, { badge: unread ? '🦉' + unread : null })),
+    group('hn-challenge', '⚔️ Challenges',
+      tile('🗼', 'Tower of Tales', screenTower, { cls:'big' }),
+      tile(pw ? '⚡' : K.level >= 5 ? '⚡' : '🔒', pw ? 'My Power' : 'Path of Powers', screenPowers, { cls: K.level >= 5 || pw ? '' : 'locked' }),
+      typeof v2Start === 'function' ? tile('🗺️', 'Skill Quest', v2Start) : null,
+      tile('📚', 'Real Books', screenRealBooks)),
+    group('hn-rewards', '🎁 Rewards',
+      tile('🛍️', 'Shop', screenShop),
+      tile('🛡️', 'Armory', screenArmory),
+      tile('🪽', 'Stables', screenStables),
+      tile(TK === 'daughter' ? '🐉' : '📖', TK === 'daughter' ? 'My Dragons' : 'Pals', screenCollection),
+      tile('🏆', 'Trophies', screenTrophies)));
 }
 
 function screenHome(msg){
@@ -1139,16 +1195,7 @@ function screenHome(msg){
       homeBtn(),
       el('div',{class:'row'},
         isDev() ? el('button',{class:'btn small wizard-btn', onclick:()=>{ beep('tap'); screenWizard(); }},'🧙 Wizard') : null,
-        el('button',{class:'btn small tower-btn', onclick:()=>{ beep('tap'); screenTower(); }},'🗼 Tower of Tales'),
-        el('button',{class:'btn small town-btn', onclick:()=>{ beep('tap'); screenTownSquare(); }},'🏰 Town Square'),
-        el('button',{class:'btn ghost small', onclick:()=>screenWorld()},'🏗️ My World'),
-        el('button',{class:'btn ghost small', onclick:screenShop},'🛍️ Shop'),
-        el('button',{class:'btn ghost small', onclick:screenArmory},'🛡️ Armory'),
-        el('button',{class:'btn ghost small stables-btn', onclick:screenStables},'🪽 Stables'),
-        el('button',{class:'btn ghost small', onclick:screenCollection}, TK==='daughter' ? '🐉 My Dragons' : '📖 Pals'),
-        el('button',{class:'btn ghost small', onclick:screenTrophies},'🏆 Trophies'),
-        el('button',{class:'btn ghost small', onclick:screenPractice},'🎯 Practice'),
-        el('button',{class:'btn ghost small', onclick:screenRealBooks},'📚 Real Books'))),
+        null)),
     el('div',{class:'hero'}, avatar,
       el('div',{class:'grow'},
         el('h1',{class:'title'}, `Hi, ${kidName()}!`),
@@ -1163,6 +1210,7 @@ function screenHome(msg){
           el('span',{class:'pill'},'🏆 ' + K.trophies.length + ' · 🎖️ ' + K.badges.length),
           el('span',{class:'pill'},(TK==='daughter'?'🐉 ':'🐾 ') + K.collection.length)),
         levelProgress(), goalBar())),
+    homeNav(),
     msg ? el('div',{class:'banner'}, msg) : null,
     doneToday ? el('div',{class:'banner'},`🎉 Great reading today! You reached your goal of ${goalMin()} minutes. You can stop here, or keep going!`) : null,
     el('div',{class:'cards'}, ...cards),
@@ -1227,7 +1275,7 @@ function greatRule(){
   if (TK === 'daughter') return { short:'4 or 5 of the 5 questions right', long:'Get 4 or 5 of the 5 questions right.' };
   if (L.kind === 'letters'){ const n = Math.ceil(L.pass * L.roundSize - 1e-9); return { short:`${n} of ${L.roundSize} letter sounds right`, long:`Say at least ${n} of the ${L.roundSize} letter sounds right.` }; }
   if (L.kind === 'words'){ const n = Math.ceil(L.pass * L.roundSize - 1e-9); return { short:`${n} of ${L.roundSize} words right`, long:`Read at least ${n} of the ${L.roundSize} words right.` }; }
-  return { short:'almost every word right + most questions right', long:'Read almost every word right, then get most of the questions right (like 4 out of 5).' };
+  return { short:'4 or 5 of the 5 questions right', long:'Read the whole story out loud, then get 4 or 5 of the 5 questions right.' };
 }
 const COUNTS_TAG = () => el('span',{class:'counts-tag'},'⬆️ Levels you up');
 
@@ -1240,7 +1288,7 @@ function levelGuide(){
   // word/letter levels can also have story cards, which use the story rule
   const how = TK === 'daughter' ? `Read a Short Story or a Chapter Book. ${rule.long}`
     : L.kind === 'story' ? `Read a story card. ${rule.long}`
-    : `In the ${round}: ${rule.long.replace(/^./, c => c.toLowerCase())}` + (seriesAt(K.level).length ? ' In a story: read almost every word right and get most questions right.' : '');
+    : `In the ${round}: ${rule.long.replace(/^./, c => c.toLowerCase())}` + (seriesAt(K.level).length ? ' In a story: read it out loud, then get 4 or 5 of the 5 questions right.' : '');
   const steps = [
     ['⭐⭐⭐', `Tap a card with the ⬆️ Levels you up sticker and get 3 stars. ${how}`, have > 0 || ready ? 'done' : 'now'],
     ['3️⃣', `Do that 3 times. You have ${ready ? LEVEL_UP_STREAK : have} of ${LEVEL_UP_STREAK}.`, ready ? 'done' : have > 0 ? 'now' : 'todo'],
@@ -2047,6 +2095,22 @@ function screenQuiz(){
   const lvl = quizLevelOf(kid);
   if (lvl === 'expert' && !run.opts.boss){ try { qs = expertQuiz(st); } catch(e){ console.warn(e); qs = null; } }
   if (!qs && lvl !== 'standard' && !run.opts.boss){ try { qs = challengeQuiz(st); } catch(e){ qs = null; } }
+  if (!qs && !run.opts.boss && typeof SON_DEEP !== 'undefined' && SON_DEEP[st.title]){
+    const deep = SON_DEEP[st.title], keep = 5 - deep.length;
+    const lit = shuffle(st.qs.slice()).slice(0, keep);
+    qs = lit.map(([q, opts, ans]) => ({ q, opts: shuffle(opts.map((o,i)=>({ t:o, right:i===ans }))) }))
+      .concat(deep.map(([q, opts, ans]) => {
+        // big-idea questions: swap the silliest wrong answer for another story's real lesson, so the right answer can't be spotted by sounding "nice"
+        const big = /lesson|moral|author|believe|teach|big idea|mean\b/i;
+        let o = opts.slice();
+        if (big.test(q)){
+          const other = shuffle(Object.entries(SON_DEEP).filter(([t]) => t !== st.title).flatMap(([, list]) => list.filter(x => big.test(x[0])).map(x => x[1][x[2]])))
+            .find(t => t !== opts[ans] && Math.abs(t.length - opts[ans].length) < 25);
+          if (other) o[o.length - 1 === ans ? 1 : o.length - 1] = other;
+        }
+        return { q, think:true, opts: shuffle(o.map((t,i)=>({ t, right:i===ans }))) };
+      }));
+  }
   if (!qs || qs.length < 3) qs = st.qs.slice(0, 5).map(([q, opts, ans]) => ({ q, opts: shuffle(opts.map((o,i)=>({ t:o, right:i===ans }))) }));
   if (!qs.extra){ try { qs.extra = shuffle(expertExtras(st)).filter(x => !qs.some(y => y.q === x.q)); } catch(e){ qs.extra = []; } }
   run.quiz = { qs, i:0, correct:0 };
@@ -2122,7 +2186,7 @@ function renderQuestion(){
       card,
       el('div',{class:'card'},
         el('div',{class:'row', style:'align-items:flex-start'},
-          el('p',{class:'q-text grow'}, item.q),
+          el('p',{class:'q-text grow'}, item.think ? el('span',{class:'think-chip'}, '🧠 Think deeper') : null, item.think ? el('br') : null, item.q),
           el('button',{class:'btn small blue', onclick:()=>say(item.q)},'🔊')),
         opts, (() => { try { return powerButton(Q, item, opts, card, fb, () => reveal(false)); } catch(e){ return null; } })(), fb, proofBox, el('div',{class:'row', style:'margin-top:10px'}, nextBtn))));
   show(s);
@@ -2266,13 +2330,18 @@ function passageCard(title, text, marks){
 }
 
 /* ---------- results + leveling ---------- */
+/* Story thresholds. Young readers on the iPad mic: speech recognition misses some correctly read words,
+   so Biscuit & Pals needs 92% (not 95%) and only a read under 80% counts as rough. */
+const storyPassAcc = () => TK === 'son' ? 0.92 : 0.95;
+const storyFailAcc = () => TK === 'son' ? 0.80 : 0.85;
 function screenResults(){
   const r = run, R = r.reading, a = r.act;
   const quiz = r.quiz ? { c:r.quiz.correct, t:r.quiz.qs.length } : null;
   const starsFor = () => {
     const L = levelDef(a.level);
-    const passAcc = a.kind === 'story' ? 0.95 : (L.pass || 0.9);
+    const passAcc = a.kind === 'story' ? storyPassAcc() : (L.pass || 0.9);
     const passQ = !quiz || quiz.c / quiz.t >= 0.8;
+    if (a.kind === 'story' && quiz) return quiz.c / quiz.t >= 0.8 ? 3 : quiz.c / quiz.t >= 0.6 ? 2 : 1;   // stories are scored on the questions, not the mic
     if (R.accuracy >= passAcc && passQ) return 3;
     if (R.accuracy >= Math.min(0.85, passAcc - 0.1) && (!quiz || quiz.c / quiz.t >= 0.6)) return 2;
     return 1;
@@ -2290,13 +2359,13 @@ function screenResults(){
     if (lvlNote){
       const have = Math.min((K.passStreak||0) + (st === 3 ? 1 : 0), LEVEL_UP_STREAK);
       // say exactly what this read got vs. what ⭐⭐⭐ needs
-      const L = levelDef(a.level), passAcc = a.kind === 'story' ? 0.95 : (L.pass || 0.9);
+      const L = levelDef(a.level), passAcc = a.kind === 'story' ? storyPassAcc() : (L.pass || 0.9);
       const gap = st === 3 ? '' : [
-        !a.quiet && R.accuracy < passAcc ? `You read ${R.correct} of ${R.total} ${a.kind === 'letters' ? 'sounds' : 'words'} right. ⭐⭐⭐ needs ${Math.ceil(passAcc * R.total - 1e-9)}.` : '',
+        !a.quiet && a.kind !== 'story' && R.accuracy < passAcc ? `You read ${R.correct} of ${R.total} ${a.kind === 'letters' ? 'sounds' : 'words'} right. ⭐⭐⭐ needs ${Math.ceil(passAcc * R.total - 1e-9)}.` : '',
         quiz && quiz.c / quiz.t < 0.8 ? `You got ${quiz.c} of ${quiz.t} questions. ⭐⭐⭐ needs ${Math.ceil(0.8 * quiz.t - 1e-9)}.` : ''
       ].filter(Boolean).join(' ') + ' ';
-      const failAcc = a.kind === 'story' ? 0.85 : (a.kind === 'letters' ? 0.6 : 0.7);
-      const rough = R.accuracy < failAcc || (quiz && quiz.c / quiz.t < 0.6), cur = Math.min(K.passStreak||0, LEVEL_UP_STREAK);
+      const failAcc = a.kind === 'story' ? storyFailAcc() : (a.kind === 'letters' ? 0.6 : 0.7);
+      const rough = (a.kind !== 'story' && R.accuracy < failAcc) || (quiz && quiz.c / quiz.t < 0.6), cur = Math.min(K.passStreak||0, LEVEL_UP_STREAK);
       lvlNote.textContent = gap + (st === 3
         ? (have >= LEVEL_UP_STREAK ? (bossFor(K.level) ? `🎉 That's ${LEVEL_UP_STREAK} great reads. ⚔️ The boss is coming!` : `🎉 That's ${LEVEL_UP_STREAK} great reads. ${TK === 'daughter' ? 'Rank' : 'Level'} up!`) : `✅ This counts! ${have} of ${LEVEL_UP_STREAK} toward the next ${TK === 'daughter' ? 'rank' : 'level'}.`)
         : rough ? `Your star boxes go from ${cur} to ${Math.max(0, cur - 1)} of ${LEVEL_UP_STREAK}. You can do it next time!`
@@ -2386,10 +2455,11 @@ async function commitResults(stars, quiz){
         if (B.ch >= a.book.chapters.length){ B.ch = 0; B.finished = (B.finished || 0) + 1; bookDone = a.book; K.stars += 10; cosmicGains.push([3, 'You finished a chapter book!']); }
       } else bookMsg = `📖 Read Chapter ${a.chapterIndex + 1} of ${a.book.title} again, then you can go on to the next chapter!`;
     }
-    const passAcc = a.kind === 'story' ? 0.95 : (L.pass || 0.9);
-    const failAcc = a.kind === 'story' ? 0.85 : (a.kind === 'letters' ? 0.6 : 0.7);
-    const passed = R.accuracy >= passAcc && (!quiz || quiz.c / quiz.t >= 0.8);
-    const failed = R.accuracy < failAcc || (quiz && quiz.c / quiz.t < 0.6);
+    const passAcc = a.kind === 'story' ? storyPassAcc() : (L.pass || 0.9);
+    const failAcc = a.kind === 'story' ? storyFailAcc() : (a.kind === 'letters' ? 0.6 : 0.7);
+    const byQuiz = a.kind === 'story' && quiz;   // stories: questions decide (the iPad mic isn't reliable enough to grade on)
+    const passed = byQuiz ? quiz.c / quiz.t >= 0.8 : R.accuracy >= passAcc && (!quiz || quiz.c / quiz.t >= 0.8);
+    const failed = byQuiz ? quiz.c / quiz.t < 0.6 : R.accuracy < failAcc || (quiz && quiz.c / quiz.t < 0.6);
     // a great read adds to the level-up count, a rough read takes one away, an okay read leaves it alone
     if (passed){ K.passStreak++; K.failStreak = 0; }
     else if (failed){ K.failStreak++; K.passStreak = Math.max(0, (K.passStreak||0) - 1); }
@@ -3666,7 +3736,7 @@ const FIXED_SKY = ['night','space','under','aurora','lava'];
 // a light layer over a whole scene (items and heroes too) so everything is lit by the time of day
 function todLayer(cls, glows){
   const ph = PHASE[dayPhase()], wrap = el('div',{class:'tod-layer ' + (cls || '')});
-  if (ph.tint) wrap.append(el('div',{class:'tod-tint', style:`background:${ph.tint};opacity:${ph.tintOp}`}));
+  if (ph.tint) wrap.append(el('div',{class:'tod-tint', style:`background:${ph.tint};opacity:${document.documentElement.classList.contains('lowfx') ? (ph.tintOp * .2).toFixed(2) : ph.tintOp}`}));
   if (dayPhase() === 'sunset' || dayPhase() === 'dawn') wrap.append(el('div',{class:'tod-rays ' + dayPhase()}));
   if (glows && (dayPhase() === 'night' || dayPhase() === 'sunset')){
     const g = el('div',{class:'tod-glows'});
@@ -3676,7 +3746,7 @@ function todLayer(cls, glows){
   if (dayPhase() === 'night'){ const f = el('div',{class:'tod-flies'}); for (let i = 0; i < 18; i++) f.append(el('i',{style:`left:${(i*53)%100}%;top:${30 + (i*37)%65}%;animation-delay:-${(i*.7).toFixed(1)}s;animation-duration:${(5 + i%5)}s`})); wrap.append(f); }
   return wrap;
 }
-function todBadge(place){ const ph = PHASE[dayPhase()]; return el('div',{class:'tod-badge ' + dayPhase()}, `${ph.icon} ${ph.name}${place ? ' in ' + place : ''}`); }
+function todBadge(place){ const ph = PHASE[dayPhase()]; return el('div',{class:'tod-badge ' + dayPhase()}, `${ph.icon} ${ph.name}`); }
 function sceneSVG(themeId){
   const P0 = SCENE_PAL[themeId] || SCENE_PAL.meadow, PH = PHASE[dayPhase()], live = !FIXED_SKY.includes(themeId);
   const P = live ? Object.assign({}, P0, { sky: dayPhase() === 'morning' ? P0.sky : PH.sky, stars: dayPhase() === 'night', sun: P0.sun === false ? false : (PH.moon ? false : PH.sun) }) : P0, R = seeded([...themeId].reduce((a, c) => a + c.charCodeAt(0), 7));
@@ -4743,7 +4813,7 @@ function bossHud(hit){
 async function bossResult(){
   const r = run, a = r.act, B = r.opts.boss, R = r.reading || computeReading();
   const quiz = r.quiz ? { c:r.quiz.correct, t:r.quiz.qs.length } : { c:0, t:1 };
-  const won = a.quiet ? quiz.c >= 4 : (R.accuracy >= 0.9 && quiz.c / quiz.t >= 0.8);
+  const won = quiz.c / quiz.t >= 0.8;   // boss fights are won on the questions
   const hud = $('.boss-hud'); if (hud) hud.remove();
   addReadingTime(Math.min(Date.now() - r.startedAt, MAX_ACTIVITY_MS));
   if (!a.quiet) trackWords(a);
@@ -5024,8 +5094,16 @@ function gearPiece(slot, S, hero){
         if (motif === 'shadow') s += `<path d="M${x} 98 q${d*24} -8 ${d*20} -34 q${-d*4} 18 ${-d*18} 30z" fill="${sec}" stroke="${INK}" stroke-width="2"/>`;
         if (motif === 'wing') s += `<path d="M${x} 100 q${d*30} -30 ${d*38} -6 q${-d*12} -2 ${-d*16} 6 q${-d*6} -6 ${-d*18} 4z" fill="#fff" stroke="${trim}" stroke-width="2"/>`;
         if (motif === 'leaf') s += `<path d="M${x} 100 q${d*18} -22 ${d*30} -10 q${-d*14} 16 ${-d*30} 10z" fill="${sec}" stroke="${INK}" stroke-width="1.5"/>`;
-        s += `<ellipse cx="${x}" cy="106" rx="${big}" ry="${big*.8}" fill="${prim}" stroke="${INK}" stroke-width="3"/><path d="M${x-big*.8} 110 q${big*.8} -${big*.7} ${big*1.6} 0" stroke="${trim}" stroke-width="3" fill="none"/>`;
-        if (S.tier >= 3) s += `<circle cx="${x}" cy="104" r="4" fill="${gem}" ${glow}/>`;
+        // layered pauldron: swept main plate, two lames, gold edge (drawn for the right side, mirrored for the left)
+        const k = .95 + Math.min(S.tier, 9) * .05;
+        s += `<g transform="translate(${x + d*2} 108) scale(${d*k} ${k})">
+          <path d="M-6 16 Q6 26 20 18 Q19 27 12 30 Q2 32 -5 26Z" fill="${prim}" stroke="${INK}" stroke-width="${3/k}" stroke-linejoin="round"/>
+          <path d="M-10 8 Q8 18 25 6 Q26 15 20 19 Q4 25 -9 17Z" fill="${sec}" stroke="${INK}" stroke-width="${3/k}" stroke-linejoin="round"/>
+          <path d="M-13 7 Q-12 -13 4 -16 Q20 -19 ${S.tier >= 4 ? '31 -30' : '27 -22'} Q32 -8 26 6 Q12 16 -13 7Z" fill="${prim}" stroke="${INK}" stroke-width="${3/k}" stroke-linejoin="round"/>
+          <path d="M-10 -3 Q-6 -13 5 -13.5 Q19 -15.5 ${S.tier >= 4 ? '28 -26' : '25 -19'}" fill="none" stroke="${trim}" stroke-width="${3.4/k}" stroke-linecap="round"/>
+          <path d="M-6 -8 Q2 -12 10 -11" stroke="#fff" stroke-width="${2.2/k}" opacity=".45" fill="none" stroke-linecap="round"/>
+          ${S.tier >= 3 ? `<path d="M6 -4 l4 5 l-4 5 l-4 -5z" fill="${gem}" stroke="${INK}" stroke-width="${1.4/k}" ${glow}/>` : ''}
+        </g>`;
         if (motif === 'star') s += starShape(x, 104, 6, trim);
         void outA;
       });
@@ -5037,7 +5115,7 @@ function gearPiece(slot, S, hero){
         ${starShape(92, 30, 6, trim)}${starShape(110, 14, 4, gem)}<path d="M78 40 a5 5 0 1 0 6 -6 a4 4 0 1 1 -6 6z" fill="${trim}"/><circle cx="142" cy="-20" r="5" fill="${gem}" ${glow}/>`;
       if (!S.tier) return `<path d="M64 52 q36 -30 72 0 l-4 6 q-32 -18 -64 0z" fill="${prim}" stroke="${INK}" stroke-width="2.5"/><path d="M64 52 q36 -30 72 0" stroke="${S.sec}" stroke-width="3" fill="none"/>`;
       let s = '';
-      if (motif === 'shadow') return `<path d="M58 70 q-2 -56 42 -58 q44 2 42 58 q-6 18 -10 30 q-2 -36 -32 -38 q-30 2 -32 38 q-6 -12 -10 -30z" fill="${prim}" stroke="${INK}" stroke-width="3"/><path d="M70 44 q30 -22 60 0" stroke="${trim}" stroke-width="2.5" fill="none"/><circle cx="100" cy="30" r="4" fill="${gem}" ${glow}/>`;
+      if (motif === 'shadow') return `<path d="M58 70 q-2 -56 42 -58 q44 2 42 58 q-6 18 -10 30 q-2 -36 -32 -38 q-30 2 -32 38 q-6 -12 -10 -30z" fill="${prim}" stroke="${INK}" stroke-width="3"/><path d="M70 44 q30 -22 60 0" stroke="${trim}" stroke-width="2.5" fill="none"/><circle cx="100" cy="30" r="4" fill="${gem}" ${glow}/><path d="M66 42 q-22 -8 -28 -34 q14 14 32 22z M134 42 q22 -8 28 -34 q-14 14 -32 22z" fill="${trim}" stroke="${INK}" stroke-width="2.5" stroke-linejoin="round"/><path d="M84 56 l10 6 M116 56 l-10 6" stroke="${gem}" stroke-width="3" stroke-linecap="round" ${glow}/>`;
       if (motif === 'wing') s += `<path d="M66 50 q-30 -14 -34 -36 q16 4 26 18 q-4 -14 2 -24 q10 14 14 32z" fill="#fff" stroke="${trim}" stroke-width="2"/><path d="M134 50 q30 -14 34 -36 q-16 4 -26 18 q4 -14 -2 -24 q-10 14 -14 32z" fill="#fff" stroke="${trim}" stroke-width="2"/>`;
       if (motif === 'crystal') s += spikes(100, 30, 5, 22, 100, 270, '#e0f2fe', '#60a5fa');
       if (motif === 'flame') s += flameShape(100, 26, 1.1, '#f97316', gem) + flameShape(84, 32, .7, '#ef4444', '#fde047') + flameShape(116, 32, .7, '#ef4444', '#fde047');
@@ -5046,7 +5124,10 @@ function gearPiece(slot, S, hero){
       if (motif === 'star') s += starShape(100, 18, 14, trim) + starShape(78, 30, 6, trim) + starShape(122, 30, 6, trim);
       s += `<path d="M62 66 q-2 -42 38 -44 q40 2 38 44 l-8 0 q-2 -26 -30 -28 q-28 2 -30 28z" fill="${prim}" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
         <path d="M62 66 l-2 24 q6 4 10 0 l2 -24z M138 66 l2 24 q-6 4 -10 0 l-2 -24z" fill="${sec}" stroke="${INK}" stroke-width="2.5"/>
-        <path d="M66 50 q34 -20 68 0" stroke="${trim}" stroke-width="3.5" fill="none"/>`;
+        <path d="M66 50 q34 -20 68 0" stroke="${trim}" stroke-width="3.5" fill="none"/>
+        <path d="M63 60 q37 -10 74 0 l-1 6 q-36 -9 -72 0z" fill="${sec}" stroke="${INK}" stroke-width="2"/>
+        <path d="M96 58 h8 l-.6 18 l-3.4 5 l-3.4 -5z" fill="${prim}" stroke="${INK}" stroke-width="2.2" stroke-linejoin="round"/>
+        ${S.tier >= 3 && motif !== 'wing' && motif !== 'flame' ? `<path d="M100 8 q-10 10 -6 18 q-2 -2 -2 6 l8 -1 l8 1 q0 -8 -2 -6 q4 -8 -6 -18z" fill="${trim}" stroke="${INK}" stroke-width="2.2" stroke-linejoin="round"/>` : ''}`;
       if (S.tier >= 2) s += `<path d="M94 38 h12 l-6 10z" fill="${gem}" stroke="${trim}" stroke-width="1.5" ${glow}/>`;
       return s; }
     case 'weapon': {
@@ -5104,7 +5185,7 @@ function heroShield(C, girl){
     <path d="M26 145 Q46 137 66 145" stroke="${rim}" stroke-width="4" fill="none"/><path d="M46 140 V196" stroke="${rim}" stroke-width="2.5" opacity=".55"/>
     <path d="M30 150 Q40 145 46 145 L44 172 Q34 166 30 150Z" fill="#fff" opacity=".18"/>${emb}</g>`;
 }
-function heroSVG(size=200, override={}){
+function heroSVGClassic(size=200, override={}){
   const h = Object.assign({ skin:SKIN_TONES[1], hairColor:HAIR_COLORS[1], hairStyle:'short', weapon:'sword' }, K.hero || {}, override.hero || {});
   const G = heroState(), eq = Object.assign({}, G.eq, override.eq || {});
   const S = slot => (eq[slot] && eq[slot] !== 'traveler' && SET_BY_ID[eq[slot]]) || starterSet();
@@ -5114,7 +5195,25 @@ function heroSVG(size=200, override={}){
   const WZo = override.wiz || K.wiz || {}, hatOn = !!(WZo.hat && HAT_BY[WZo.hat]), robeOn = !!(WZo.robe && ROBE_BY[WZo.robe]), wandOn = !!(WZo.wandOn && WZo.wand);
   const helmOn = S('helmet').tier > 0 && !hatOn;
   const u = 'h' + (++heroSeq), eye = h.eyes || EYE_COLORS[0];
-  let s = `<svg viewBox="0 0 200 250" width="${size}" height="${size*1.25}" xmlns="http://www.w3.org/2000/svg" class="hero-svg">
+  // ---- materials: armor pieces get metal / gem gradients instead of flat fills ----
+  let matDefs = ''; const made = {};
+  const matFor = (Sx) => { const k = u + 'm' + Sx.id + (Sx === starterSet() ? 'st' : ''); if (made[k]) return k; made[k] = 1;
+    const metal = (id, c) => `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${shade(c, .5)}"/><stop offset=".22" stop-color="${shade(c, .15)}"/><stop offset=".5" stop-color="${c}"/><stop offset=".8" stop-color="${shade(c, -.28)}"/><stop offset="1" stop-color="${shade(c, -.45)}"/></linearGradient>`;
+    const cloth = (id, c) => `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${shade(c, .18)}"/><stop offset=".6" stop-color="${c}"/><stop offset="1" stop-color="${shade(c, -.22)}"/></linearGradient>`;
+    const gold = (id, c) => `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${shade(c, .65)}"/><stop offset=".38" stop-color="${c}"/><stop offset=".55" stop-color="${shade(c, -.3)}"/><stop offset=".72" stop-color="${shade(c, .25)}"/><stop offset="1" stop-color="${shade(c, -.4)}"/></linearGradient>`;
+    const f = Sx.tier ? metal : cloth;
+    matDefs += f(k + 'p', Sx.prim) + f(k + 's', Sx.sec) + (Sx.tier ? gold(k + 't', Sx.trim) : cloth(k + 't', Sx.trim))
+      + `<radialGradient id="${k}g" cx="38%" cy="32%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset=".3" stop-color="${shade(Sx.gem, .35)}"/><stop offset=".8" stop-color="${Sx.gem}"/><stop offset="1" stop-color="${shade(Sx.gem, -.35)}"/></radialGradient>`;
+    return k; };
+  const GP = (slot, Sx) => { let out = gearPiece(slot, Sx, h); if (!Sx) return out; const k = matFor(Sx);
+    const rep = (c, suf) => { if (!c) return; out = out.split(`fill="${c}"`).join(`fill="url(#${k}${suf})"`); };
+    rep(Sx.gem, 'g'); rep(Sx.trim, 't'); rep(Sx.sec, 's'); rep(Sx.prim, 'p');
+    return out; };
+  const HV = window.__heroVar || {}, hs = HV.h || .76, bs = HV.b || 1.1, ny = 238 - 134 * bs;
+  const HEAD_T = `translate(100 ${ny + 2}) scale(${hs}) translate(-100 -97)`;
+  const BODY_T = `translate(100 238) scale(${HV.w || .95} ${bs}) translate(-100 -238)`;
+  const C0 = S('chest');
+  let s = `<svg viewBox="0 0 200 250" width="${size}" height="${size*1.25}" xmlns="http://www.w3.org/2000/svg" class="hero-svg" style="overflow:visible">
   <defs><filter id="hglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
   <radialGradient id="${u}a"><stop offset="0" stop-color="${full ? full.gem : '#fff'}" stop-opacity=".75"/><stop offset="1" stop-color="${full ? full.gem : '#fff'}" stop-opacity="0"/></radialGradient>
   <radialGradient id="${u}s" cx="42%" cy="38%" r="70%"><stop offset="0" stop-color="#fff" stop-opacity=".35"/><stop offset=".55" stop-color="${h.skin}" stop-opacity="0"/><stop offset="1" stop-color="#7a3b2e" stop-opacity=".22"/></radialGradient>
@@ -5123,6 +5222,8 @@ function heroSVG(size=200, override={}){
   <linearGradient id="${u}v" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#1c0f1c" stop-opacity=".22"/></linearGradient></defs>`;
   if (full) s += `<ellipse class="hero-aura" cx="100" cy="130" rx="96" ry="118" fill="url(#${u}a)"/>${[[30,60],[170,80],[24,170],[176,190],[60,20],[150,24]].map(([x,y],i) => `<g class="hero-spark" style="animation-delay:-${i*.4}s">${starShape(x, y, 6, full.gem)}</g>`).join('')}`;
   s += `<ellipse cx="100" cy="238" rx="56" ry="8" fill="#000" opacity=".18"/>`;
+  if (C0.tier >= 2 && !full) s += `<defs><radialGradient id="${u}r"><stop offset="0" stop-color="${C0.gem}" stop-opacity=".55"/><stop offset="1" stop-color="${C0.gem}" stop-opacity="0"/></radialGradient></defs><ellipse cx="100" cy="120" rx="${70 + C0.tier * 3}" ry="${100 + C0.tier * 3}" fill="url(#${u}r)"/>`;
+  s += `<g transform="${BODY_T}">`;
   { const C = S('chest');
     if (C.motif !== 'wizard'){
       const TC = K.tower && K.tower.cape && TOWER_CAPE_BY_ID[K.tower.cape];
@@ -5134,47 +5235,203 @@ function heroSVG(size=200, override={}){
       <path d="M86 112 Q80 170 74 222 M114 112 Q120 170 128 222" stroke="${shade(cape, -.4)}" stroke-width="2.5" fill="none" opacity=".55"/>
       <path d="M66 100 Q40 160 18 234" stroke="${edge}" stroke-width="2" fill="none" opacity=".8"/></g>`;
     } }
-  if (!helmOn || h.hairStyle === 'long' || h.hairStyle === 'ponytail') s += hairBack(h);
+  if (!helmOn || h.hairStyle === 'long' || h.hairStyle === 'ponytail') s += `</g><g transform="${HEAD_T}">${hairBack(h)}</g><g transform="${BODY_T}">`;
   // arms (skin), then body pieces
   s += `<path d="M68 106 L52 158" stroke="${INK}" stroke-width="15" stroke-linecap="round"/><path d="M68 106 L52 158" stroke="${S('chest').tier ? S('chest').sec : S('chest').prim}" stroke-width="10" stroke-linecap="round"/>
         <path d="M132 106 L148 158" stroke="${INK}" stroke-width="15" stroke-linecap="round"/><path d="M132 106 L148 158" stroke="${S('chest').tier ? S('chest').sec : S('chest').prim}" stroke-width="10" stroke-linecap="round"/>`;
-  s += gearPiece('pants', S('pants'), h) + gearPiece('boots', S('boots'), h) + gearPiece('chest', S('chest'), h);
+  s += GP('pants', S('pants')) + GP('boots', S('boots')) + GP('chest', S('chest'));
   if (h.outfit === 'dress' && S('chest').motif !== 'wizard'){ const C = S('chest'), fill = C.tier ? C.prim : C.prim, hem = C.tier ? C.trim : C.sec;
     s += `<path d="M68 148 h64 q14 26 20 50 q-10 6 -18 0 q-8 6 -17 0 q-9 6 -17 0 q-9 6 -17 0 q-8 6 -17 0 q-8 6 -18 0 q6 -24 20 -50z" fill="${fill}" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
       <path d="M52 194 q8 6 18 0 q8 6 17 0 q9 6 17 0 q9 6 17 0 q8 6 17 0 q8 6 18 0" fill="none" stroke="${hem}" stroke-width="4"/><path d="M82 156 l-6 34 M100 156 v36 M118 156 l6 34" stroke="${C.tier ? C.sec : '#fff'}" stroke-width="2" opacity=".5"/>
       ${C.motif === 'petal' ? [[78,176],[100,182],[122,176]].map(([x,y]) => `<circle cx="${x}" cy="${y}" r="4" fill="#fff"/><circle cx="${x}" cy="${y}" r="1.8" fill="${C.gem}"/>`).join('') : ''}`; }
-  s += gearPiece('belt', S('belt'), h);
+  s += GP('belt', S('belt'));
+  { const C = S('chest');   // tabard: a hanging front panel like real plate armor (not with a dress, robe or wizard coat)
+    if (C.tier && h.outfit !== 'dress' && !robeOn && C.motif !== 'wizard'){ const k = matFor(C);
+      s += `<path d="M86 163 h28 l2 38 l-16 10 l-16 -10z" fill="url(#${k}s)" stroke="${INK}" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="M89 166 h22 l1.6 33 l-12.6 8 l-12.6 -8z" fill="none" stroke="url(#${k}t)" stroke-width="2.2"/>
+        <path d="M100 176 l6 8 l-6 8 l-6 -8z" fill="url(#${k}g)" stroke="${INK}" stroke-width="1.5"/>`; } }
   if (robeOn) s += robeArt(WZo.robe, WZo.house);
   s += `<path d="M54 104 L146 104 L150 232 L50 232z" fill="url(#${u}v)" style="mix-blend-mode:multiply" opacity=".9"/>`;
   s += `<rect x="92" y="90" width="16" height="16" fill="${h.skin}" stroke="${INK}" stroke-width="3"/><path d="M92 92 h16 v6 q-8 4 -16 0z" fill="#7a3b2e" opacity=".2"/>`;
-  s += gearPiece('shoulders', S('shoulders'), h);
+  s += GP('shoulders', S('shoulders'));
+  s += `</g><g transform="${HEAD_T}">`;
   // head + face
   // big round game-style eyes: soft lash on the outer side, two shines, no frown
   const eyeAt = (x, flip) => { const o = flip ? 1 : -1; // o = direction of the outer corner
     return `<g>
-      <ellipse cx="${x}" cy="70.5" rx="7.2" ry="9.2" fill="#fff"/>
-      <ellipse cx="${x}" cy="71.5" rx="6" ry="8" fill="url(#${u}i)"/>
-      <ellipse cx="${x}" cy="72.4" rx="2.7" ry="3.6" fill="#140c18"/>
-      <ellipse cx="${x - o*2}" cy="67.4" rx="2.8" ry="3.2" fill="#fff"/><circle cx="${x + o*2.2}" cy="76" r="1.4" fill="#fff" opacity=".9"/>
-      <path d="M${x - o*5.5} 62.6 Q${x} 59.6 ${x + o*7.6} 64.4" stroke="${INK}" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <path d="M${x - o*6.5} 67 Q${x} 63.5 ${x + o*7.5} 67.5 Q${x + o*6} 76 ${x} 76.5 Q${x - o*6} 75.5 ${x - o*6.5} 67z" fill="#fff"/>
+      <ellipse cx="${x - o*.6}" cy="70.8" rx="4.6" ry="5.4" fill="url(#${u}i)"/>
+      <ellipse cx="${x - o*.6}" cy="71.2" rx="2.2" ry="2.8" fill="#140c18"/>
+      <circle cx="${x - o*2}" cy="69" r="1.5" fill="#fff"/>${girl ? `<path d="M${x + o*7.6} 67.6 l${o*3.4} -2.8 M${x + o*5} 65 l${o*2.6} -3.4" stroke="${INK}" stroke-width="1.9" stroke-linecap="round"/>` : ''}
+      <path d="M${x - o*6.8} 67.4 Q${x} 63 ${x + o*8} 67.8" stroke="${INK}" stroke-width="3" fill="none" stroke-linecap="round"/>
       ${girl ? `<path d="M${x + o*7.2} 64 l${o*3} -2.6 M${x + o*5.4} 62.2 l${o*2.2} -2.8" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>` : `<path d="M${x + o*7.4} 64.2 l${o*1.8} -1.2" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>`}
     </g>`; };
   s += `<circle cx="100" cy="64" r="34" fill="${h.skin}" stroke="${INK}" stroke-width="3"/><circle cx="100" cy="64" r="33" fill="url(#${u}s)"/>
     ${eyeAt(86, false)}${eyeAt(114, true)}
-    <path d="M79 57.5 Q86 53 93 56" stroke="${h.hairColor === '#f1f5f9' ? '#94a3b8' : shade(h.hairColor, -.2)}" stroke-width="3.2" fill="none" stroke-linecap="round"/><path d="M107 56 Q114 53 121 57.5" stroke="${h.hairColor === '#f1f5f9' ? '#94a3b8' : shade(h.hairColor, -.2)}" stroke-width="3.2" fill="none" stroke-linecap="round"/>
-    <ellipse cx="78" cy="80" rx="8" ry="5" fill="url(#${u}b)"/><ellipse cx="122" cy="80" rx="8" ry="5" fill="url(#${u}b)"/>
-    <path d="M75 79 l2 -2.4 M79 79 l2 -2.4 M119 79 l2 -2.4 M123 79 l2 -2.4" stroke="#fff" stroke-width="1.1" opacity=".7" stroke-linecap="round"/>
-    <path d="M99 77.5 q1.2 1 2.4 0" stroke="#b9775f" stroke-width="1.4" fill="none" stroke-linecap="round"/>
-    <path d="M93.5 82 q6.5 7 13 0 q-6.5 2 -13 0z" fill="#8a3443" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/><path d="M97 85.2 q3 1.8 6 0" fill="#ff9aa8"/>`;
+    <path d="M77 56 Q86 56 94 61 L93 63.5 Q85 59.5 77.5 59z" fill="${h.hairColor === '#f1f5f9' ? '#94a3b8' : shade(h.hairColor, -.25)}" stroke="${INK}" stroke-width="1.2"/><path d="M123 56 Q114 56 106 61 L107 63.5 Q115 59.5 122.5 59z" fill="${h.hairColor === '#f1f5f9' ? '#94a3b8' : shade(h.hairColor, -.25)}" stroke="${INK}" stroke-width="1.2"/>
+    <path d="M70 74 q4 14 14 20 M130 74 q-4 14 -14 20" stroke="#7a3b2e" stroke-width="2" opacity=".18" fill="none" stroke-linecap="round"/>
+    <path d="M100 70 l-2.6 9 q2.6 1.6 5 0" stroke="#9a5a45" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    ${girl ? `<path d="M93 85.4 q7 4.6 14 -1 q-7 1.4 -14 1z" fill="#c2566b"/>` : ''}<path d="M92 86 q8 3.6 16 -1.4" stroke="${INK}" stroke-width="2.4" fill="none" stroke-linecap="round"/>`;
   if (h.beard) s += `<path d="M70 70 q4 22 14 34 q8 26 16 34 q8 -8 16 -34 q10 -12 14 -34 q-6 14 -18 16 q-12 -6 -24 0 q-12 -2 -18 -16z" fill="${h.beardColor || '#f1f5f9'}" stroke="${INK}" stroke-width="2.5" stroke-linejoin="round"/><path d="M90 86 q10 -5 20 0" stroke="${INK}" stroke-width="2.5" fill="none" stroke-linecap="round"/>`;
   const bow = !helmOn && girl && h.bow !== false ? `<g transform="translate(${h.hairStyle === 'buns' ? 100 : 126} ${h.hairStyle === 'buns' ? 28 : 36}) rotate(18)"><path d="M0 0 l-16 -10 q-4 10 0 20z M0 0 l16 -10 q4 10 0 20z" fill="${S('chest').tier ? S('chest').gem : '#f472b6'}" stroke="${INK}" stroke-width="2.5" stroke-linejoin="round"/><circle r="5" fill="${S('chest').tier ? S('chest').trim : '#ec4899'}" stroke="${INK}" stroke-width="2"/></g>` : '';
   const shine = `<path d="M74 47 q9 -13 25 -15" stroke="#fff" stroke-width="4.5" opacity=".32" fill="none" stroke-linecap="round"/><path d="M104 32 q6 0 11 2" stroke="#fff" stroke-width="3" opacity=".25" fill="none" stroke-linecap="round"/>`;
-  s += hatOn ? hairFront(h) + shine + hatArt(WZo.hat, WZo.house) : helmOn ? gearPiece('helmet', S('helmet'), h) : hairFront(h) + shine + bow + (S('helmet').id === 'traveler' && override.showCap ? gearPiece('helmet', S('helmet'), h) : '');
-  s += gearPiece('gloves', S('gloves'), h);
+  s += hatOn ? hairFront(h) + shine + hatArt(WZo.hat, WZo.house) : helmOn ? GP('helmet', S('helmet')) : hairFront(h) + shine + bow + (S('helmet').id === 'traveler' && override.showCap ? gearPiece('helmet', S('helmet'), h) : '');
+  s += '</g>';
+  s += `<g transform="${BODY_T}">` + GP('gloves', S('gloves'));
   if (!wandOn && ((h.weapon || 'sword') === 'sword' || h.weapon === 'laser')) s += heroShield(S('chest'), girl);
   const wpn = override.wpn !== undefined ? override.wpn : K.wpn;
-  s += wandOn ? wandArt(142, 170, 178, 104, WZo.wand.wood, WZo.wand.core, 6.5) : wpn && LW_BY_ID[wpn] ? legendWeaponSVG(wpn) : gearPiece('weapon', S('weapon'), h);
-  return s + '</svg>';
+  s += '<g transform="translate(160 150) scale(.9) translate(-160 -150)">' + (wandOn ? wandArt(142, 170, 178, 104, WZo.wand.wood, WZo.wand.core, 6.5) : wpn && LW_BY_ID[wpn] ? legendWeaponSVG(wpn) : GP('weapon', S('weapon'))) + '</g>';
+  return s + `</g><defs>${matDefs}</defs></svg>`;
+}
+/* ---------- Hero Art 3.0: anime hero cards (Gia = Rune Reader, Miles = Hard-Light Knight) ---------- */
+const HERO_CLASSIC = /[?&]classic=1/.test(location.search);
+const HERO_WAIST = HERO_CLASSIC ? .68 : .56, HERO_CLIP = HERO_CLASSIC ? .13 : .15;
+function heroSVG(size = 200, override = {}){
+  if (HERO_CLASSIC) return heroSVGClassic(size, override);
+  const girl = heroKidKey() === 'daughter';
+  if (K && K.hero && !K.hero.av3 && !override.hero){ K.hero.av3 = 1; K.hero.hairColor = girl ? '#7c3aed' : '#1f1b18'; if (girl) K.hero.hairStyle = 'short'; }
+  const h = Object.assign({ skin: SKIN_TONES[1], hairColor: girl ? '#7c3aed' : '#1f1b18', hairStyle: 'short', weapon: 'sword' }, K.hero || {}, override.hero || {});
+  const G = heroState(), eq = Object.assign({}, G.eq, override.eq || {});
+  const S = slot => (eq[slot] && eq[slot] !== 'traveler' && SET_BY_ID[eq[slot]]) || null;
+  const full = override.eq ? null : fullSetOn();
+  const WZo = override.wiz || K.wiz || {}, hatOn = !!(WZo.hat && HAT_BY[WZo.hat]), robeOn = !!(WZo.robe && ROBE_BY[WZo.robe]), wandOn = !!(WZo.wandOn && WZo.wand);
+  const wpn = override.wpn !== undefined ? override.wpn : K.wpn, legend = wpn && LW_BY_ID[wpn];
+  const u = 'a' + (++heroSeq), INKc = '#1b1424';
+  let gn = 0; const defs = [];
+  const sh = (c, a) => shade(c, a);
+  const lin = (stops, x2 = 0, y2 = 1) => { const id = u + 'g' + (++gn); defs.push(`<linearGradient id="${id}" x1="0" y1="0" x2="${x2}" y2="${y2}">${stops.map(([o, c, a]) => `<stop offset="${o}" stop-color="${c}"${a != null ? ` stop-opacity="${a}"` : ''}/>`).join('')}</linearGradient>`); return `url(#${id})`; };
+  const radg = (stops) => { const id = u + 'g' + (++gn); defs.push(`<radialGradient id="${id}">${stops.map(([o, c, a]) => `<stop offset="${o}" stop-color="${c}"${a != null ? ` stop-opacity="${a}"` : ''}/>`).join('')}</radialGradient>`); return `url(#${id})`; };
+  const cloth = c => lin([[0, sh(c, .25)], [.55, c], [1, sh(c, -.4)]], 1, 1);
+  const GL = `filter="url(#${u}gl)"`, BL = `filter="url(#${u}bl)"`;
+  const P = (d, f, sw = 2.4, x = '') => `<path d="${d}" fill="${f}" stroke="${INKc}" stroke-width="${sw}" stroke-linejoin="round" stroke-linecap="round" ${x}/>`;
+  const L = (d, c, w, x = '') => `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" ${x}/>`;
+  const MIR = s => `<g transform="translate(300 0) scale(-1 1)">${s}</g>`;
+  const limb = (d, f, w) => L(d, INKc, w + 5) + L(d, f, w);
+  const spark = (x, y, r, c) => `<path d="M${x} ${y-r} L${x+r*.25} ${y-r*.25} L${x+r} ${y} L${x+r*.25} ${y+r*.25} L${x} ${y+r} L${x-r*.25} ${y+r*.25} L${x-r} ${y} L${x-r*.25} ${y-r*.25}Z" fill="${c}" ${GL}/>`;
+  // ---- palette: base look, then each equipped set recolours its part ----
+  const base = girl ? { coat:'#e9d5ff', coat2:'#6d28d9', trim:'#a855f7', glow:'#f0abfc', shirt:'#312e81', low:'#4c1d95', legs:'#1e1b4b', boots:'#4c1d95', bootT:'#a855f7', glove:h.skin, belt:'#312e81', gem:'#f0abfc', head:'#f0abfc', wglow:'#f0abfc' }
+                    : { coat:'#e2e8f0', coat2:'#1d4ed8', trim:'#3b82f6', glow:'#93c5fd', shirt:'#94a3b8', low:'#1e3a8a', legs:'#1e293b', boots:'#cbd5e1', bootT:'#3b82f6', glove:'#cbd5e1', belt:'#111827', gem:'#60a5fa', head:'#94a3b8', wglow:'#93c5fd' };
+  const C = Object.assign({}, base);
+  const ch = S('chest'); if (ch){ C.coat = sh(ch.prim, .3); C.coat2 = sh(ch.prim, -.25); C.trim = ch.trim; C.glow = ch.gem; C.shirt = sh(ch.sec, -.35); }
+  const pa = S('pants'); if (pa){ C.low = pa.prim; C.legs = sh(pa.prim, -.45); }
+  const bo = S('boots'); if (bo){ C.boots = bo.prim; C.bootT = bo.trim; }
+  const gv = S('gloves'); if (gv) C.glove = gv.prim;
+  const be = S('belt'); if (be){ C.belt = sh(be.prim, -.3); C.gem = be.gem; }
+  const he = S('helmet'); if (he) C.head = he.prim;
+  const we = S('weapon'); if (we) C.wglow = we.gem;
+  if (robeOn){ const R = wizColors(ROBE_BY[WZo.robe], WZo.house); if (R){ C.coat = R.prim; C.coat2 = sh(R.prim, -.35); C.trim = R.sec; } }
+  const sp = S('shoulders'), tier = ch ? ch.tier : 0;
+  const hs = (h.hairStyle === 'long' || h.hairStyle === 'ponytail') ? h.hairStyle : girl ? 'bob' : 'spiky';
+  const eye = h.eyes || (girl ? '#ec4899' : '#2563eb'), hair = h.hairColor, skin = h.skin;
+  const gem = full ? full.gem : C.glow;
+  const SY = .8, BT = `translate(0 434) scale(1 ${SY}) translate(0 -434)`, HT = `translate(0 ${(434 - 288 * SY - 146).toFixed(1)})`;
+  let s = `<svg viewBox="-6 60 304 380" width="${size}" height="${size*1.25}" xmlns="http://www.w3.org/2000/svg" class="hero-svg ah" style="overflow:visible">`;
+  let body = '';
+  // ---- aura / ground ----
+  body += `<ellipse cx="150" cy="250" rx="${120 + tier * 4}" ry="${150 + tier * 4}" fill="${radg([[0, gem, tier ? .45 : .25], [.6, gem, .1], [1, gem, 0]])}" ${full ? 'class="hero-aura"' : ''}/>`;
+  body += `<ellipse cx="150" cy="430" rx="78" ry="9" fill="#000" opacity=".28"/><ellipse cx="150" cy="430" rx="66" ry="6" fill="none" stroke="${gem}" stroke-width="2" opacity=".7"/>`;
+  if (full) [[30, 120], [270, 150], [40, 320], [262, 340], [70, 70], [232, 80]].forEach(([x, y], i) => body += `<g class="hero-spark" style="animation-delay:-${i * .4}s">${spark(x, y, 7, full.gem)}</g>`);
+  body += `<g transform="${BT}">`;
+  // hard-light wings from chest tier 4
+  if (tier >= 4){ const w = 70 + Math.min(tier, 9) * 9;
+    body += [-1, 1].map(d => `<g ${GL} opacity=".85">${P(`M${150 + d*18} 160 C${150 + d*60} ${120 - tier*2} ${150 + d*w} ${110 - tier*3} ${150 + d*(w + 20)} ${70 - tier*3} C${150 + d*(w + 6)} 150 ${150 + d*(w - 10)} 190 ${150 + d*(w - 30)} 226 C${150 + d*(w - 40)} 206 ${150 + d*(w - 60)} 204 ${150 + d*(w - 70)} 214 C${150 + d*50} 196 ${150 + d*34} 190 ${150 + d*24} 196Z`, lin([[0, sh(gem, .6), .75], [1, gem, .25]]), 1.6)}${L(`M${150 + d*24} 168 L${150 + d*(w + 16)} ${74 - tier*3} M${150 + d*26} 182 L${150 + d*(w - 30)} 222`, '#fff', 1.4, 'opacity=".6"')}</g>`).join('');
+    if (tier >= 7) body += `<ellipse cx="150" cy="58" rx="34" ry="9" fill="none" stroke="${gem}" stroke-width="3" ${GL}/>`; }
+  // ---- coat tail, legs, boots ----
+  const coat = cloth(C.coat), coat2 = cloth(C.coat2);
+  body += `<g class="ah-cape">${P('M116 150 C98 240 90 320 80 404 Q114 394 150 400 Q186 394 220 404 C210 320 202 240 184 150Z', coat2)}${L('M80 404 Q114 394 150 400 Q186 394 220 404', C.trim, 2.5)}</g>`;
+  // ---- hair (back) ----
+  body += `</g><g transform="${HT}">`;
+  const hairF = lin([[0, sh(hair, .15)], [1, sh(hair, -.45)]]);
+  if (hs === 'long') body += P('M124 76 C104 140 112 220 98 296 Q118 282 128 296 Q122 230 136 170 Q150 210 150 230 Q150 210 164 170 Q178 230 172 296 Q182 282 202 296 C188 220 196 140 176 76Z', hairF);
+  if (hs === 'ponytail') body += P('M170 70 C206 74 214 130 204 190 C200 220 210 250 220 266 C196 262 186 232 190 196 C194 150 188 110 168 92Z', hairF);
+  if (hs === 'bob') body += P('M122 84 C116 120 118 140 124 152 Q136 146 140 152 L160 152 Q164 146 176 152 C182 140 184 120 178 84Z', hairF);
+  body += `</g><g transform="${BT}">`;
+  const leg = cloth(C.legs), bt = cloth(C.boots);
+  body += P('M130 292 C128 336 130 380 129 412 L147 412 C148 380 150 340 151 298Z', leg) + P('M149 298 C150 340 152 380 153 412 L171 412 C170 380 172 336 170 292Z', leg);
+  body += P('M126 366 L149 366 L149 424 Q150 434 140 434 L118 434 Q118 425 127 421Z', bt) + P('M151 366 L174 366 L173 421 Q182 425 182 434 L160 434 Q150 434 151 424Z', bt);
+  body += L('M126 372 H149 M151 372 H174', C.bootT, 3) + L('M129 386 L146 386 M154 386 L171 386', C.glow, 1.6, GL);
+  if (bo && bo.tier >= 3) body += [-1, 1].map(d => P(`M${150 + d*24} 372 L${150 + d*40} 352 L${150 + d*30} 376Z`, cloth(C.bootT), 1.6)).join('');
+  body += girl ? P('M126 224 L174 224 L190 300 Q170 308 150 302 Q130 308 110 300Z', cloth(C.low)) + L('M110 300 Q130 308 150 302 Q170 308 190 300', C.trim, 2)
+               : P('M126 224 L174 224 L178 296 L152 300 L150 284 L148 300 L122 296Z', cloth(C.low));
+  // ---- torso, belt, coat front ----
+  body += P('M131 146 L169 146 L173 228 L127 228Z', cloth(C.shirt));
+  if (!girl) body += P('M134 150 Q150 144 166 150 L164 200 Q150 208 136 200Z', cloth(sh(C.shirt, .35)), 2) + `<path d="M150 160 l8 10 l-8 12 l-8 -12z" fill="${C.glow}" stroke="${INKc}" stroke-width="1.6" ${GL}/>`;
+  else body += L('M140 160 L160 172 M160 160 L140 172 M141 184 L159 196 M159 184 L141 196', C.trim, 1.8);
+  body += P('M126 222 L174 222 L175 234 L125 234Z', cloth(C.belt), 2) + `<rect x="144" y="222" width="12" height="12" rx="2" fill="${C.gem}" stroke="${INKc}" stroke-width="1.5" ${GL}/>`;
+  const panel = P('M121 144 C112 200 110 262 104 338 Q118 334 132 330 C134 262 136 200 142 150Z', coat);
+  body += panel + MIR(panel) + L('M141 152 C135 200 133 262 131 330 M159 152 C165 200 167 262 169 330', C.trim, 2.6) + L('M126 170 C122 230 118 290 114 326 M174 170 C178 230 182 290 186 326', C.glow, 1.4, GL + ' opacity=".9"');
+  if (robeOn && ROBE_BY[WZo.robe] && ROBE_BY[WZo.robe].house && HOUSES[WZo.house]) body += `<g transform="translate(110 250) scale(.13)">${crestInner(WZo.house)}</g>`;
+  // ---- pose ----
+  const holdsRight = wandOn || legend || !girl || !!we;
+  const book = girl && !holdsRight;
+  const armL = book ? 'M120 150 Q100 186 108 206 Q116 214 130 208' : !girl ? 'M120 150 Q96 172 86 196 Q82 206 84 216' : 'M120 150 Q104 190 106 222 Q108 246 112 266';
+  const armR = book ? 'M180 150 Q200 186 192 206 Q184 214 170 208' : 'M180 150 Q200 190 196 222 Q194 246 190 266';
+  const end = d => d.trim().split(/[ QCLM]+/).filter(Boolean).slice(-2).map(Number);
+  // hard-light hex shield (Miles) sits behind the left hand
+  if (!girl){ const sc = C.wglow;
+    body += `<g class="hero-shield" transform="translate(72 206)" ${GL}><path d="M0 -50 L42 -26 L42 24 L0 50 L-42 24 L-42 -26Z" fill="${sc}" opacity=".22" stroke="${sh(sc, .4)}" stroke-width="2.4"/>${[[0,-26],[-22,-13],[22,-13],[-22,13],[22,13],[0,26],[0,0]].map(([x,y]) => `<path d="M${x} ${y-11} L${x+10} ${y-5.5} L${x+10} ${y+5.5} L${x} ${y+11} L${x-10} ${y+5.5} L${x-10} ${y-5.5}Z" fill="none" stroke="${sh(sc, .6)}" stroke-width=".9" opacity=".8"/>`).join('')}</g>`; }
+  const sleeve = cloth(C.coat);
+  body += limb(armL, sleeve, 15) + limb(armR, sleeve, 15);
+  [armL, armR].forEach(d => { const [x, y] = end(d); body += `<circle cx="${x}" cy="${y - 7}" r="8.5" fill="${C.trim}" stroke="${INKc}" stroke-width="2"/><circle cx="${x}" cy="${y + 2}" r="7" fill="${C.glove}" stroke="${INKc}" stroke-width="2"/>`; });
+  // shoulders: soft cuffs at tier 0, armoured pauldrons that grow with the shoulder set
+  if (sp){ const k = .9 + Math.min(sp.tier, 9) * .07, pf = cloth(sp.prim);
+    const pd = `<g transform="translate(118 146) scale(${k})">${P('M-14 16 C-26 -4 -12 -24 12 -18 L18 4 C8 2 -2 8 -6 18Z', pf)}${L('M-16 6 C-18 -10 -4 -20 12 -16', sp.trim, 2.6)}${sp.tier >= 3 ? `<path d="M0 -2 l4 5 l-4 5 l-4 -5z" fill="${sp.gem}" stroke="${INKc}" stroke-width="1.2" ${GL}/>` : ''}${sp.tier >= 5 ? P('M-8 -14 L-18 -34 L2 -18Z', cloth(sp.trim), 1.6) : ''}</g>`;
+    body += pd + MIR(pd);
+  } else { const sd = P('M110 160 C106 142 118 132 134 136 C130 146 124 152 120 162Z', cloth(C.coat2), 2.2); body += sd + MIR(sd); }
+  const col = P('M128 140 C126 124 132 118 138 116 L144 142Z', coat); body += col + MIR(col);
+  body += `<rect x="143" y="128" width="14" height="18" fill="${skin}" stroke="${INKc}" stroke-width="2"/>`;
+  // ---- face ----
+  body += `</g><g transform="${HT}">`;
+  body += P('M125 92 Q125 121 150 137 Q175 121 175 92 Q175 62 150 60 Q125 62 125 92Z', lin([[0, sh(skin, .12)], [.7, skin], [1, sh(skin, -.12)]]));
+  body += `<path d="M125 98 Q127 122 150 137 Q138 124 133 104Z" fill="#a0523d" opacity=".12"/>`;
+  [-1, 1].forEach(d => { const x = 150 + d * 11.5, y = 104, ir = lin([[0, sh(eye, -.55)], [.45, eye], [1, sh(eye, .55)]]);
+    body += `<path d="M${x - d*7.5} ${y} Q${x} ${y-6.5} ${x + d*7.5} ${y-1.5} Q${x + d*5} ${y+6.5} ${x} ${y+6.5} Q${x - d*6.5} ${y+5.5} ${x - d*7.5} ${y}Z" fill="#fff"/>`;
+    body += `<ellipse cx="${x + d*.4}" cy="${y + 1.2}" rx="4.6" ry="5.6" fill="${ir}"/><ellipse cx="${x + d*.4}" cy="${y + 1.6}" rx="2" ry="2.8" fill="${sh(eye, -.75)}"/>`;
+    body += `<circle cx="${x - 1.5}" cy="${y - 1.4}" r="1.6" fill="#fff"/><circle cx="${x + 1.8}" cy="${y + 3.6}" r=".9" fill="#fff" opacity=".8"/>`;
+    body += `<path d="M${x - d*8.5} ${y + .8} Q${x - d*2} ${y - 8.2} ${x + d*9} ${y - 2.2} L${x + d*11} ${y - 4.4} L${x + d*8.6} ${y - .4} Q${x} ${y - 6} ${x - d*8.5} ${y + .8}Z" fill="${INKc}"/>`;
+    body += L(`M${x - d*6.5} ${y - 10.5} Q${x + d} ${y - 13} ${x + d*7.5} ${y - 11}`, sh(hair, -.35), 1.8); });
+  body += L('M150.5 112 l-1.6 4.2 l2 .4', '#c08470', 1.2);
+  body += girl ? `<path d="M145.5 123.5 Q150 128 154.5 123.5 Q150 125 145.5 123.5Z" fill="#b5475c" stroke="${INKc}" stroke-width="1.1"/>` : L('M146 124.5 Q150 126.5 154 124', '#7a3341', 1.5);
+  body += `<ellipse cx="135" cy="117" rx="5" ry="2.2" fill="#ff8fa3" opacity=".22"/><ellipse cx="165" cy="117" rx="5" ry="2.2" fill="#ff8fa3" opacity=".22"/>`;
+  if (h.beard) body += P('M128 112 Q132 134 150 142 Q168 134 172 112 Q164 126 150 126 Q136 126 128 112Z', h.beardColor || '#f1f5f9', 1.8);
+  // ---- hair (front) ----
+  const hairT = lin([[0, sh(hair, .3)], [.6, hair], [1, sh(hair, -.3)]]);
+  if (hs === 'spiky') body += P('M122 98 C114 82 112 66 120 56 L114 40 L130 46 L132 28 L144 42 L152 22 L160 40 L172 28 L174 46 L188 42 L180 58 C188 70 186 86 178 98 L172 84 L168 100 L160 80 L154 100 L148 78 L140 98 L136 80 L130 98Z', hairT);
+  else body += P('M123 96 C119 66 134 52 150 52 C166 52 181 66 177 96 L171 82 L168 100 L161 78 L156 99 L150 74 L144 98 L139 78 L132 99 L129 82Z', hairT);
+  if (hs !== 'spiky'){ const lock = P('M126 84 C120 112 124 132 118 152 C128 144 132 124 133 100Z', hairT); body += lock + MIR(lock); }
+  body += L('M132 64 Q146 56 160 60', '#fff', 3, 'opacity=".45"') + L('M138 70 Q146 66 152 67', '#fff', 1.6, 'opacity=".35"');
+  // ---- headgear ----
+  if (hatOn) body += `<g transform="translate(76 48.6) scale(.74)">${hatArt(WZo.hat, WZo.house)}</g>`;
+  else if (girl){ // headphones (helmet slot colours them)
+    body += L('M121 84 C120 50 180 50 179 84', '#1f2937', 4) + P('M116 84 h10 v22 h-10z', cloth(C.head), 2) + P('M174 84 h10 v22 h-10z', cloth(C.head), 2);
+    if (he && he.tier >= 2) body += `<circle cx="121" cy="95" r="3" fill="${he.gem}" ${GL}/><circle cx="179" cy="95" r="3" fill="${he.gem}" ${GL}/>`;
+    if (he && he.tier >= 4) body += `<path d="M150 40 l6 9 l-6 9 l-6 -9z" fill="${he.gem}" stroke="${INKc}" stroke-width="1.4" ${GL}/>` + L('M128 58 Q150 44 172 58', he.trim, 2.4);
+  } else if (he){ // knight circlet / crest
+    body += P('M124 70 Q150 58 176 70 L174 78 Q150 68 126 78Z', cloth(he.prim), 1.8) + `<path d="M150 58 l6 9 l-6 10 l-6 -10z" fill="${he.gem}" stroke="${INKc}" stroke-width="1.4" ${GL}/>`;
+    if (he.tier >= 3) body += [-1, 1].map(d => P(`M${150 + d*24} 72 L${150 + d*40} ${52 - he.tier} L${150 + d*30} 74Z`, cloth(he.trim), 1.6)).join('');
+  }
+  // ---- held items ----
+  body += `</g><g transform="${BT}">`;
+  const RH = end(armR);
+  if (book){
+    body += `<g transform="translate(150 186)"><path d="M-34 -6 Q-17 -14 0 -6 Q17 -14 34 -6 L34 18 Q17 10 0 18 Q-17 10 -34 18Z" fill="#fef3c7" stroke="${INKc}" stroke-width="2"/><path d="M0 -6 V18" stroke="${INKc}" stroke-width="1.5"/><path d="M-28 0 h22 M-28 6 h18 M6 0 h22 M10 6 h18" stroke="${C.wglow}" stroke-width="1.6" ${GL}/></g>`;
+  }
+  if (girl){ // orbiting runes (always — she is the Rune Reader)
+    const cy = book ? 150 : 200, cx = book ? 150 : 84;
+    body += `<ellipse cx="${cx}" cy="${cy}" rx="${book ? 62 : 40}" ry="${book ? 24 : 15}" fill="none" stroke="${C.wglow}" stroke-width="1" stroke-dasharray="2 6" opacity=".8"/>`;
+    body += ['ᚱ','ᛟ','ᚨ','ᛞ','ᛖ','ᚷ'].slice(0, book ? 6 : 4).map((r, i, a) => { const t = i / a.length * Math.PI * 2; return `<text x="${(cx + Math.cos(t) * (book ? 62 : 40)).toFixed(1)}" y="${(cy + Math.sin(t) * (book ? 24 : 15)).toFixed(1)}" fill="${C.wglow}" font-size="16" font-family="serif" text-anchor="middle" ${GL}>${r}</text>`; }).join('');
+    if (!book) body += `<g transform="translate(84 206) rotate(-10) scale(.6)"><path d="M-34 -6 Q-17 -14 0 -6 Q17 -14 34 -6 L34 18 Q17 10 0 18 Q-17 10 -34 18Z" fill="#fef3c7" stroke="${INKc}" stroke-width="3"/></g>`;
+  }
+  if (wandOn) body += wandArt(RH[0], RH[1], RH[0] + 34, RH[1] - 74, WZo.wand.wood, WZo.wand.core, 7);
+  else if (legend) body += `<g transform="translate(${RH[0] - 160 * 1.5} ${RH[1] - 160 * 1.5}) scale(1.5)">${legendWeaponSVG(wpn)}</g>`;
+  else if (!girl || we){
+    const blade = C.wglow, len = 110 + (we ? Math.min(we.tier, 8) * 6 : 0);
+    if ((h.weapon || 'sword') === 'staff') body += L(`M${RH[0]} ${RH[1] + 150} L${RH[0] + 4} ${RH[1] - 150}`, '#422006', 6) + `<circle cx="${RH[0] + 4}" cy="${RH[1] - 156}" r="12" fill="${blade}" stroke="${INKc}" stroke-width="2" ${GL}/>`;
+    else body += `<path d="M${RH[0]} ${RH[1]} L${RH[0] + 4} ${RH[1] - len}" stroke="${blade}" stroke-width="14" stroke-linecap="round" opacity=".35" ${BL}/>` + L(`M${RH[0]} ${RH[1]} L${RH[0] + 4} ${RH[1] - len}`, blade, 6, GL) + L(`M${RH[0]} ${RH[1]} L${RH[0] + 4} ${RH[1] - len}`, '#fff', 2)
+      + P(`M${RH[0] - 14} ${RH[1] - 4} Q${RH[0]} ${RH[1] - 12} ${RH[0] + 14} ${RH[1] - 4} Q${RH[0]} ${RH[1] + 2} ${RH[0] - 14} ${RH[1] - 4}Z`, cloth(C.trim), 1.8);
+  }
+  s += `<defs><filter id="${u}gl" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="2.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter><filter id="${u}bl" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="7"/></filter><filter id="hglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>${defs.join('')}</defs>`;
+  return s + body + '</g></svg>';
 }
 function profileHero(k, size){ const keep = K; K = DB.kids[k]; try { return size ? riderNode(size) : heroNode(110); } finally { K = keep; } }
 function heroNode(size=170, withBuddy=true){
@@ -5219,7 +5476,7 @@ function lootReveal(setId, slot, fromBoss){
         el('h2',{class:'epic-title'}, `${S.name} ${SLOT_LABEL[slot]}!`),
         el('p',{class:'epic-sub'}, `${setCount(setId)} of 8 ${S.name} pieces · ${8 - setCount(setId) ? `${8 - setCount(setId)} more for the full set glow!` : 'FULL SET! Wear them all to glow!'}`),
         el('div',{class:'row center'},
-          el('button',{class:'btn big', onclick:()=>{ heroState().eq[slot] = setId; save(); ov.remove(); res(); }},'⚔️ Equip it!'),
+          el('button',{class:'btn big', onclick:()=>{ heroState().eq[slot] = setId; if (slot === 'weapon'){ K.wpn = null; wandOff(); } save(); ov.remove(); res(); }},'⚔️ Equip it!'),
           el('button',{class:'btn small gray', onclick:()=>{ ov.remove(); res(); }},'Later'))));
     document.body.append(ov); confetti(fromBoss ? 120 : 60); beep('level');
     say(`You got the ${S.name} ${SLOT_LABEL[slot]}!`);
@@ -5253,15 +5510,15 @@ function legendGrid(grid){
   const own = weaponState(), n = LEGEND_WEAPONS.filter(w => own[w.id]).length;
   grid.append(el('div',{class:'lw-head'}, el('b',{}, `🌟 ${n}/${LEGEND_WEAPONS.length} found`),
     el('span',{class:'muted'}, ' Find them in Gold & Cosmic chests, or buy one. ⭐ ' + balance() + '  💫 ' + cosmicBal()),
-    K.wpn ? el('button',{class:'btn small ghost', onclick:()=>{ K.wpn = null; save(); beep('tap'); screenArmory(); }}, '↩️ Use my set weapon') : null));
+    K.wpn ? el('button',{class:'btn small ghost', onclick:()=>{ K.wpn = null; wandOff(); save(); beep('tap'); screenArmory(); }}, '↩️ Use my set weapon') : null));
   LEGEND_WEAPONS.forEach(W => {
     const have = !!own[W.id] || isDev(), on = K.wpn === W.id, R = RARITY[W.r];
     const cost = (W.price.cur === 'cosmic' ? '💫 ' : '⭐ ') + W.price.amt;
     grid.append(el('button',{class:'armory-item lw-item r-' + W.r + (have ? '' : ' locked') + (on ? ' on' : ''), style:`--rc:${R.c}`, onclick:()=>{
-        if (have){ K.wpn = on ? null : W.id; save(); beep('tap'); if (!on) say(W.name + '!'); screenArmory(); return; }
+        if (have){ K.wpn = on ? null : W.id; if (!on) wandOff(); save(); beep('tap'); if (!on) say(W.name + '!'); screenArmory(); return; }
         if (!canPay(W.price)){ say(`${W.name}. ${R.n}. Find it in a chest, or save up ${W.price.amt} ${W.price.cur === 'cosmic' ? 'Cosmic Power' : 'stars'}.`); beep('bad'); return; }
         if (!confirm(`Buy ${W.name} for ${cost}?`)) return;
-        pay(W.price); giveWeapon(W); K.wpn = W.id; save(); confetti(W.r === 'mythic' ? 120 : 60); beep('level'); burst(R.n.toUpperCase() + '!'); say(W.name + '!'); screenArmory(); }},
+        pay(W.price); giveWeapon(W); K.wpn = W.id; wandOff(); save(); confetti(W.r === 'mythic' ? 120 : 60); beep('level'); burst(R.n.toUpperCase() + '!'); say(W.name + '!'); screenArmory(); }},
       el('div',{class:'ai-pic lw-pic' + (have ? '' : ' dim'), html: weaponIcon(W.id, 150)}),
       el('div',{class:'lw-rar'}, R.n + ' · Lv ' + W.ilvl),
       el('div',{class:'ai-name'}, W.name),
@@ -5280,8 +5537,8 @@ function screenArmory(){
     const where = S.tier === 0 ? 'Starter gear' : BOSS_PIECES.includes(armorySlot) ? `Beat the Level ${S.tier} boss` : `Great reads at Level ${S.tier}`;
     grid.append(el('button',{class:'armory-item' + (owned ? '' : ' locked') + (on ? ' on' : ''), style:`--gem:${S.gem};--prim:${S.prim}`, onclick:()=>{
         if (!owned){ say(`${S.name} ${SLOT_LABEL[armorySlot]}. ${where} to get it!`); return; }
-        G.eq[armorySlot] = S.id; save(); beep('tap'); screenArmory(); }},
-      el('div',{class:'ai-pic', html: owned ? heroSVG(84, { eq: Object.assign({}, G.eq, { [armorySlot]: S.id }) }) : ''}, owned ? null : '🔒'),
+        G.eq[armorySlot] = S.id; if (armorySlot === 'weapon'){ K.wpn = null; wandOff(); } save(); beep('tap'); screenArmory(); }},
+      el('div',{class:'ai-pic', html: owned ? heroSVG(84, Object.assign({ eq: Object.assign({}, G.eq, { [armorySlot]: S.id }) }, armorySlot === 'weapon' ? { wpn:null, wiz:Object.assign({}, K.wiz || {}, { wandOn:false }) } : {})) : ''}, owned ? null : '🔒'),
       el('div',{class:'ai-name'}, S.name), el('div',{class:'ai-sub'}, owned ? (on ? '✓ Wearing' : 'Tap to wear') : where)));
   });
   const sets = el('div',{class:'set-list'}, ...armorySets().filter(S => S.tier).map(S => {
@@ -5289,7 +5546,7 @@ function screenArmory(){
     return el('div',{class:'set-row', style:`--gem:${S.gem};--prim:${S.prim}`},
       el('span',{class:'set-dot'}), el('b',{}, S.name), el('span',{class:'muted'}, `Level ${S.tier}`),
       el('div',{class:'set-bar'}, el('div',{style:`width:${n/8*100}%`})), el('span',{}, `${n}/8`),
-      n === 8 ? el('button',{class:'btn small', onclick:()=>{ GEAR_SLOTS.forEach(s => G.eq[s] = S.id); save(); burst('SET!'); screenArmory(); }},'Wear set') : null);
+      n === 8 ? el('button',{class:'btn small', onclick:()=>{ GEAR_SLOTS.forEach(s => G.eq[s] = S.id); K.wpn = null; wandOff(); save(); burst('SET!'); screenArmory(); }},'Wear set') : null);
   }));
   show(el('div',{class:'screen'},
     el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()},'← Back'), el('h1',{class:'title'},'🛡️ Armory'),
@@ -5587,10 +5844,10 @@ function mountSVG(id, size = 200, withRider = true, flap = true){
   const M = MOUNT_BY_ID[id]; if (!M) return '';
   const D = MOUNT_DRAW[M.body](M.o), [sx, sy] = D.seat;
   let rider = '';
-  if (withRider){ const hw = 90, hh = hw * 1.25, cid = 'rc' + (++heroSeq); // the hero's waist is ~68% down the hero picture
+  if (withRider){ const hw = HERO_CLASSIC ? 90 : 112, hh = hw * 1.25, cid = 'rc' + (++heroSeq); // the hero's waist is ~68% down the hero picture
     // sitting: hide the hero's legs below the hips; the saddle and a boot in the stirrup go on top
-    rider = `<clipPath id="${cid}"><rect x="0" y="0" width="320" height="${sy + hh*.13}"/></clipPath><g clip-path="url(#${cid})">` +
-      heroSVG(hw).replace('<svg ', `<svg x="${sx - hw/2}" y="${sy - hh*.68}" `) + '</g>'; }
+    rider = `<clipPath id="${cid}"><rect x="0" y="0" width="320" height="${sy + hh*HERO_CLIP}"/></clipPath><g clip-path="url(#${cid})">` +
+      heroSVG(hw).replace('<svg ', `<svg x="${sx - hw/2}" y="${sy - hh*HERO_WAIST}" `) + '</g>'; }
   return `<svg viewBox="0 0 320 260" width="${size}" height="${size*260/320}" xmlns="http://www.w3.org/2000/svg" class="mount-svg${flap ? ' flap' : ''} m-${M.r}">
     <defs><filter id="hglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
     <g class="m-bob">${D.back}${rider}${D.front}</g></svg>`;
@@ -7360,6 +7617,7 @@ const HATS = [
   { id:'flower',   name:'Blossom Hat',    cost:40, prim:'#be185d', sec:'#fbcfe8', flower:true }
 ];
 const ROBE_BY = Object.fromEntries(ROBES.map(r => [r.id, r])), HAT_BY = Object.fromEntries(HATS.map(h => [h.id, h]));
+function wandOff(){ if (K && K.wiz) K.wiz.wandOn = false; }
 function WZ(k){ const kk = k || K; kk.wiz = Object.assign({ house:null, woods:[], cores:[], wand:null, wandOn:false, robes:[], hats:[], robe:null, hat:null, letters:[], accept:false, lastWeek:null, cups:{} }, kk.wiz || {}); return kk.wiz; }
 const wizColors = (item, house) => item && item.house ? (HOUSES[house] ? { prim:HOUSES[house].prim, sec:HOUSES[house].sec } : { prim:'#4c1d95', sec:'#fbbf24' }) : item;
 const wStar = (x, y, r, c) => { let p = ''; for (let i = 0; i < 10; i++){ const a = Math.PI / 5 * i - Math.PI / 2, rr = i % 2 ? r * .45 : r; p += (i ? 'L' : 'M') + (x + Math.cos(a) * rr).toFixed(1) + ' ' + (y + Math.sin(a) * rr).toFixed(1); } return `<path d="${p}Z" fill="${c}"/>`; };
@@ -7514,7 +7772,7 @@ let owlShown = false;
 function owlPopup(){
   if (owlShown || !K || (navigator.webdriver && !window.__owlTest)) return; const W = WZ(), unread = W.letters.filter(l => !l.read);
   if (!unread.length || W.owlNag === todayStr() && unread.every(l => l.nagged)) return; owlShown = true;
-  setTimeout(() => { if (document.querySelector('.overlay') || !document.querySelector('#app .hall-btn') || !K.hero){ owlShown = false; return; }
+  setTimeout(() => { if (document.querySelector('.overlay') || !document.querySelector('#app .home-nav') || !K.hero){ owlShown = false; return; }
     const first = unread[unread.length - 1]; W.owlNag = todayStr(); unread.forEach(l => l.nagged = true); save();
     modal(el('div',{class:'center'}, el('div',{style:'font-size:72px'}, '🦉'), el('h2',{}, unread.length > 1 ? unread.length + ' owls have arrived!' : 'An owl has arrived!'), el('p',{}, first.title)), [['Open the letter','',1],['Later','gray',0]])
       .then(ok => { if (ok) screenOwlMail(first.id); }); }, 900);
@@ -7691,9 +7949,6 @@ screenHome = function(msg){
   owlCheck(); save();
   const stats = document.querySelector('#app .screen .stats');
   if (stats) stats.append(houseChip());
-  const town = document.querySelector('#app .screen .town-btn');
-  if (town){ const unread = WZ().letters.filter(l => !l.read).length;
-    town.after(el('button',{class:'btn small hall-btn', onclick:()=>{ beep('tap'); screenGreatHall(); }}, '🏰 Great Hall', unread ? el('span',{class:'owl-badge'}, '🦉' + unread) : null)); }
   owlPopup();
 };
 PZ_BUILDINGS.push(
@@ -7985,8 +8240,6 @@ function addPowerChip(){
   const id = PW(); const stats = document.querySelector('#app .screen .stats'); if (!stats) return;
   document.body.dataset.power = id || '';
   if (id) stats.append(el('span',{class:'pill power-pill', style:`--pc:${POWERS[id].color}`, onclick:()=>screenMyPower()}, el('span',{html:powerEmblem(id, 22)}), ' ' + POWERS[id].name));
-  const hall = document.querySelector('#app .screen .hall-btn');
-  if (hall && !document.querySelector('#app .pow-btn')) hall.after(el('button',{class:'btn small pow-btn', onclick:()=>{ beep('tap'); screenPowers(); }}, id ? '⚡ My Power' : K.level >= 5 ? '⚡ Path of Powers' : '⚡ Powers 🔒'));
 }
 const _screenHomeP = screenHome;
 screenHome = function(msg){ _screenHomeP(msg); if (K) addPowerChip(); };
@@ -8022,7 +8275,7 @@ function truesightTap(p, i){
   return true;
 }
 
-if (navigator.webdriver) window.__sb = { expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord };
+if (navigator.webdriver) window.__sb = { expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, GEAR_SETS, GEAR_SLOTS };
 mountEpicBg(); setInterval(mountEpicBg, 10 * 60 * 1000);
 if (navigator.webdriver) window.__landing = () => screenFamilyLogin();
 /* ======================= STORYBORNE 2.0: adaptive curriculum UI =======================
@@ -8068,7 +8321,7 @@ function v2ReadConfidence(res){
   // grown-up scoring is reliable; speech recognition on young readers is not ground truth
   if (useManual()) return 0.95;
   if (!res || !res.total) return 0.5;
-  return res.accuracy < 0.5 ? 0.5 : 0.75;   // very low SR scores usually mean the iPad didn't hear, not that the child can't read
+  return 0.5;   // the iPad mic isn't reliable for young readers: mic results are kept for practice but never count toward skill mastery
 }
 function v2WordsFromRun(act){
   const words = [];
@@ -8496,6 +8749,132 @@ watchForUpdates();
 
 // test hooks
 window.__RQ = { graphemes: typeof graphemes !== 'undefined' ? graphemes : null, align, wordMatch, tokenizeHeard, letterMatch, checkBadges, maybeStarfallChest, get run(){ return run; }, get DB(){ return DB; } };
+/* ---------- Quest Path: the leveling map (one chapter = one level) ---------- */
+let qpReturn = false;
+function qpState(){ if (!K.qp || K.qp.lvl !== K.level) K.qp = { lvl: K.level, spell: false, lab: false }; return K.qp; }
+function qpGo(fn){ return () => { beep('tap'); qpReturn = true; fn(); }; }
+function qpStops(){
+  const G = TK === 'daughter', L = levelDef(K.level), Q = qpState(), streak = Math.min(K.passStreak || 0, LEVEL_UP_STREAK), ready = bossReady();
+  const series = G ? [] : seriesAt(K.level);
+  const readGo = (i) => {
+    if (G){ const book = currentBook(); if (i === 1 && book){ const bs = bookState(book.id); return { label: book.title.length > 18 ? 'Chapter Book' : book.title, ic:'📚', go: () => startChapter(book, bs.ch) }; }
+      const st = nextQuietStory(); return { label: st ? (st.title.length > 18 ? 'Short Story' : st.title) : 'Short Story', ic:'📖', go: startQuietStory }; }
+    if (L.kind !== 'story' && (i !== 1 || !series.length)) return { label: L.kind === 'letters' ? 'Letter Sounds' : L.title, ic:'🔤', go: () => startActivity() };
+    const sid = series[i % Math.max(1, series.length)]; const st = sid ? storyFor(K.level, sid).story : null;
+    return { label: st ? (st.title.length > 18 ? 'Story Time' : st.title) : 'Story Time', ic:'📖', go: () => startActivity(sid) };
+  };
+  const read = (i) => { const r = readGo(i), state = i < streak || ready ? 'done' : i === streak ? 'now' : 'next'; if (state === 'done') r.label = 'Great read!'; if (state === 'next') r.label = G ? 'Next story' : 'Next read'; return Object.assign(r, { kind:'read', state }); };
+  const spell = { kind:'spell', label: G ? 'Spelling Check' : 'Spelling', letters: G ? 'ABC' : 'CAT', state: Q.spell ? 'done' : 'bonus', go: () => { Q.spell = true; save(); G ? startSpellCheck() : (spellWords().length ? startSpelling() : startSpellCheck()); } };
+  const tricky = !G && practiceWords(K).length;
+  const lab = { kind:'lab', label: tricky ? 'Tricky Words' : 'Skill Lab', ic: tricky ? '🎯' : '🧠', state: Q.lab ? 'done' : 'bonus', go: () => { Q.lab = true; save(); tricky ? startPractice() : v2Start(); } };
+  const B = bossFor(K.level), beat = (K.bossesBeaten || []).includes(K.level);
+  const boss = B ? { kind:'boss', label: B.name, B, state: beat ? 'done' : ready ? 'now' : 'locked', go: () => bossIntro() } : { kind:'gate', label: (G ? 'Rank ' : 'Level ') + (K.level + 1), state: ready ? 'now' : 'locked', go: () => {} };
+  return [read(0), spell, read(1), lab, read(2), boss];
+}
+// point on the trail (three cubic segments) for t in 0..1
+function qpTrail(t){
+  const S = [[[-20,560],[140,560],[170,470],[285,492]], [[285,492],[405,514],[425,390],[550,390]], [[550,390],[670,390],[700,470],[825,420]], [[825,420],[905,388],[965,352],[1040,360]]];
+  const k = Math.min(3, Math.floor(t * 4)), u = t * 4 - k, [a, b, c, d] = S[k], m = 1 - u;
+  return [0, 1].map(j => m*m*m*a[j] + 3*m*m*u*b[j] + 3*m*u*u*c[j] + u*u*u*d[j]);
+}
+function qpScene(G){
+  const tree = (x, y, s, c) => `<g transform="translate(${x} ${y}) scale(${s})"><rect x="-5" y="0" width="10" height="40" fill="#78350f"/><circle cx="0" cy="-8" r="26" fill="${c}"/><circle cx="-16" cy="4" r="18" fill="${c}"/><circle cx="16" cy="4" r="18" fill="${c}"/><circle cx="-6" cy="-16" r="10" fill="#fff" opacity=".12"/></g>`;
+  const pine = (x, y, s) => `<g transform="translate(${x} ${y}) scale(${s})"><rect x="-3" y="20" width="6" height="16" fill="#78350f"/><path d="M0 -40 L22 0 L10 0 L26 24 L-26 24 L-10 0 L-22 0Z" fill="#1e3a8a" opacity=".85"/></g>`;
+  let s = `<defs><linearGradient id="qpsky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${G ? '#c4b5fd' : '#7dd3fc'}"/><stop offset="1" stop-color="#e0f2fe"/></linearGradient>
+    <linearGradient id="qpgold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fef08a"/><stop offset=".6" stop-color="#facc15"/><stop offset="1" stop-color="#eab308"/></linearGradient>
+    <linearGradient id="qpblue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#93c5fd"/><stop offset="1" stop-color="#3b82f6"/></linearGradient>
+    <linearGradient id="qpgrey" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e2e8f0"/><stop offset="1" stop-color="#94a3b8"/></linearGradient></defs>`;
+  s += `<rect width="1024" height="640" fill="url(#qpsky)"/><path d="M0 230 L130 140 L250 220 L380 120 L520 220 L660 140 L820 230 L950 150 L1024 200 V640 H0Z" fill="${G ? '#7c3aed' : '#60a5fa'}" opacity=".32"/>`;
+  s += `<path d="M0 290 Q240 220 500 270 T1024 250 V640 H0Z" fill="${G ? '#4ade80' : '#86efac'}"/>`;
+  if (G){
+    s += `<g transform="translate(130 110)"><rect x="-40" y="0" width="80" height="170" fill="#e7e5e4" stroke="#78716c" stroke-width="3"/><path d="M-52 4 L0 -70 L52 4Z" fill="#7c3aed" stroke="#4c1d95" stroke-width="3"/><path d="M0 -70 v-24 l18 8 l-18 8" fill="#f43f5e"/><rect x="-14" y="40" width="28" height="40" rx="14" fill="#1e293b"/><rect x="-14" y="110" width="28" height="60" rx="14" fill="#78350f"/></g>`;
+    s += `<g class="qp-fly" transform="translate(250 70) scale(.9)"><path d="M0 20 C20 0 50 4 60 20 C70 10 90 6 96 16 C84 18 76 26 70 34 C56 30 40 34 30 44 C26 34 14 26 0 20Z" fill="#14b8a6" stroke="#134e4a" stroke-width="3"/><path d="M30 20 C40 -10 70 -20 84 -10 C66 -8 56 4 50 18Z" fill="#5eead4" stroke="#134e4a" stroke-width="3"/><circle cx="88" cy="14" r="2.5" fill="#134e4a"/></g>`;
+    s += pine(420, 220, 1.6) + pine(470, 232, 1.2) + tree(640, 214, 1.4, '#16a34a') + pine(760, 214, 1.5) + tree(900, 204, 1.6, '#15803d') + pine(990, 224, 1.3) + tree(40, 300, 1.2, '#15803d');
+  } else {
+    s += tree(170, 150, 3.2, '#16a34a') + `<g transform="translate(170 130)"><rect x="-80" y="0" width="160" height="16" fill="#b45309" stroke="#78350f" stroke-width="3"/><path d="M-80 0 v-30 M80 0 v-30 M-80 -30 H80" stroke="#dc2626" stroke-width="5"/><path d="M-70 -6 L0 -60 L70 -6Z" fill="#fbbf24" stroke="#b45309" stroke-width="3"/><path d="M60 16 L70 130 M80 16 L90 130" stroke="#fff" stroke-width="4"/></g>`;
+    s += `<g transform="translate(80 150)"><path d="M0 0 v60" stroke="#e5e7eb" stroke-width="2"/><circle cx="0" cy="74" r="16" fill="none" stroke="#1f2937" stroke-width="9"/></g>`;
+    s += tree(520, 214, 1.3, '#15803d') + tree(680, 204, 1.6, '#22c55e') + pine(820, 224, 1.5) + tree(960, 214, 1.4, '#15803d') + pine(400, 234, 1.2);
+  }
+  s += `<path d="M-20 610 C140 610 180 510 290 530 C410 552 430 430 550 430 C670 430 700 510 830 462 C910 430 970 400 1040 410 L1040 320 C960 312 900 340 820 378 C700 430 670 350 550 352 C420 354 400 472 280 452 C170 434 130 510 -20 510Z" fill="#fde68a" stroke="#eab308" stroke-width="3"/>`;
+  s += `<path d="M-20 560 C140 560 170 470 285 492 C405 514 425 390 550 390 C670 390 700 470 825 420 C905 388 965 352 1040 360" stroke="#fff" stroke-width="16" fill="none" stroke-linecap="round" opacity=".9"/>`;
+  return s;
+}
+function qpTag(t, y){ const w = Math.max(70, t.length * 8 + 24); return `<g transform="translate(0 ${y})"><rect x="${-w/2}" y="-14" width="${w}" height="28" rx="14" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/><text y="5" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="800" font-size="15" fill="#334155">${String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</text></g>`; }
+function qpStar(x, y, r){ let d = ''; for (let i = 0; i < 10; i++){ const a = -Math.PI/2 + i*Math.PI/5, rr = i % 2 ? r*.45 : r; d += (i ? 'L' : 'M') + (x + Math.cos(a)*rr).toFixed(1) + ' ' + (y + Math.sin(a)*rr).toFixed(1); } return `<path d="${d}Z" fill="#fde047" stroke="#b45309" stroke-width="1.5"/>`; }
+function qpNodeArt(n){
+  const done = n.state === 'done', now = n.state === 'now', locked = n.state === 'locked', fill = done ? 'url(#qpgold)' : locked ? 'url(#qpgrey)' : 'url(#qpblue)', rim = now ? '#fde047' : '#fff', base = done ? '#b45309' : locked ? '#64748b' : '#1e40af';
+  let s = now ? `<ellipse class="qp-pulse" cx="0" cy="2" rx="54" ry="23" fill="#fff" opacity=".45"/>` : '';
+  if (n.kind === 'boss' || n.kind === 'gate'){
+    s += `<ellipse cx="0" cy="22" rx="58" ry="18" fill="#000" opacity=".18"/>`;
+    s += n.B ? `<g transform="translate(-50 -96)" opacity="${locked ? .55 : 1}">${bossArt(n.B, 100).replace('<svg ', '<svg x="0" y="0" ')}</g>` : '';
+    s += `<ellipse cx="0" cy="12" rx="40" ry="16" fill="${base}"/><ellipse cx="0" cy="4" rx="40" ry="16" fill="${fill}" stroke="${rim}" stroke-width="${now ? 4 : 3}"/><text y="11" text-anchor="middle" font-size="20">${done ? '👑' : locked ? '🔒' : '⚔️'}</text>`;
+    return s + qpTag(n.label, 44);
+  }
+  if (n.kind === 'spell'){
+    s += n.letters.split('').map((c, i) => `<g transform="translate(${(i-1)*24} ${i === 1 ? -6 : 0}) rotate(${(i-1)*8})"><rect x="-12" y="-13" width="24" height="26" rx="4" fill="${done ? 'url(#qpgold)' : '#e0e7ff'}" stroke="#fff" stroke-width="2.5"/><text y="7" text-anchor="middle" font-family="Georgia" font-weight="700" font-size="17" fill="${done ? '#7c2d12' : '#4338ca'}">${c}</text></g>`).join('');
+    if (done) s += qpStar(30, -24, 9); else s += `<text x="34" y="-18" font-size="13" font-weight="800" fill="#7c3aed" font-family="Nunito,Arial">+⭐</text>`;
+    return s + qpTag(n.label, 38);
+  }
+  s += `<ellipse cx="0" cy="10" rx="36" ry="15" fill="${base}"/><ellipse cx="0" cy="2" rx="36" ry="15" fill="${fill}" stroke="${rim}" stroke-width="${now ? 4 : 3}"/>`;
+  if (done) s += `<path d="M-10 2 l7 6 l13 -12" stroke="#b45309" stroke-width="5" fill="none" stroke-linecap="round"/>` + (n.kind === 'read' ? qpStar(-18, -22, 9) + qpStar(0, -28, 9) + qpStar(18, -22, 9) : qpStar(0, -24, 9));
+  else s += `<text y="9" text-anchor="middle" font-size="20">${n.ic}</text>` + (n.state === 'bonus' ? `<text x="34" y="-14" font-size="13" font-weight="800" fill="#7c3aed" font-family="Nunito,Arial">+⭐</text>` : '');
+  return s + qpTag(n.label, 38);
+}
+function screenQuestPath(msg){
+  stopAll();
+  if (!K.hero) return screenHome(msg);
+  const G = TK === 'daughter', L = levelDef(K.level), max = T.levels.length, word = G ? 'Rank' : 'Level';
+  const stops = qpStops(), ts = [.08, .22, .37, .51, .66, .87];
+  const legend = K.level >= max && (K.bossesBeaten || []).includes(K.level);
+  let svg = `<svg viewBox="0 0 1024 640" class="qp-svg" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">${qpScene(G)}`;
+  let heroAt = null;
+  stops.forEach((n, i) => { const [x, y] = qpTrail(ts[i]); svg += `<g class="qp-node qp-${n.state}" data-i="${i}" transform="translate(${x.toFixed(0)} ${y.toFixed(0)})">${qpNodeArt(n)}</g>`; if (n.state === 'now' && !heroAt) heroAt = [x, y]; });
+  if (!heroAt) heroAt = qpTrail(legend ? ts[5] : ts[0]);
+  // the full hero stands on the path, just behind the glowing stop
+  const hw = 112, hh = hw * 1.25;
+  svg += `<g class="qp-hero">${heroSVG(hw).replace('<svg ', `<svg x="${(heroAt[0] - 70 - hw / 2).toFixed(0)}" y="${(heroAt[1] + 8 - hh).toFixed(0)}" `)}</g>`;
+  if (!G && K.avatar && K.avatar.base) svg += `<g>${avatarSVG(K.avatar, 70).replace('<svg ', `<svg x="${(heroAt[0] - 160).toFixed(0)}" y="${(heroAt[1] - 52).toFixed(0)}" `)}</g>`;
+  svg += '</svg>';
+  const stage = el('div',{class:'qp-stage', html: svg});
+  stage.addEventListener('click', e => { const g = e.target.closest('.qp-node'); if (!g) return; const n = stops[+g.dataset.i];
+    if (n.state === 'locked'){ beep('tap'); say(n.kind === 'boss' ? `Get ${LEVEL_UP_STREAK} great reads first. Then the boss comes out!` : 'Keep going! This opens after the boss.'); return; }
+    if (n.kind === 'read' && n.state === 'next'){ beep('tap'); say('Do the glowing one first!'); return; }
+    if (n.kind === 'gate') return;
+    if (n.kind === 'read' && n.state === 'done' && !bossReady()) return say('You already got 3 stars here!');
+    qpGo(n.go)(); });
+  const have = Math.min(K.passStreak || 0, LEVEL_UP_STREAK);
+  // mini-map: every level of the track, boss at each, castle at the end
+  let mm = `<svg viewBox="0 0 700 90" class="qp-mm-svg" xmlns="http://www.w3.org/2000/svg">`;
+  const pts = Array.from({ length: max }, (_, i) => [30 + i * (560 / Math.max(1, max - 1)), 56 + Math.sin(i * .9) * 14]);
+  mm += `<path d="M${pts.map(p => p.map(v => v.toFixed(1)).join(' ')).join(' L')} L640 46" stroke="#fff" stroke-width="3" fill="none" opacity=".8"/>`;
+  pts.forEach(([x, y], i) => { const n = i + 1, st = n < K.level || legend ? 'd' : n === K.level ? 'c' : 'l';
+    mm += `<circle cx="${x}" cy="${y}" r="${st === 'c' ? 11 : 8}" fill="${st === 'd' ? '#facc15' : st === 'c' ? '#3b82f6' : '#64748b'}" stroke="#fff" stroke-width="2.5"/><text x="${x}" y="${y + 4}" text-anchor="middle" font-size="10" font-weight="800" fill="${st === 'd' ? '#7c2d12' : '#fff'}" font-family="Arial">${n}</text>`; });
+  mm += `<g transform="translate(650 40)"><rect x="-24" y="-4" width="48" height="32" fill="#fff" stroke="#1e293b" stroke-width="2"/>${[-14,0,14].map(x=>`<path d="M${x-5} 28 v-12 a5 5 0 0 1 10 0 v12" fill="#1e293b"/>`).join('')}<path d="M-24 -4 v-10 h8 v5 h8 v-5 h8 v5 h8 v-5 h8 v5 h8 v-5 h0 v10" fill="#fff" stroke="#1e293b" stroke-width="2"/><path d="M0 -14 v-14 l11 5 l-11 5" fill="#facc15" stroke="#1e293b" stroke-width="1.5"/></g>`;
+  const [cx, cy] = pts[Math.min(K.level, max) - 1];
+  mm += heroSVG(34).replace('<svg ', `<svg x="${cx - 17}" y="${cy - 54}" `) + '</svg>';
+  const s = el('div',{class:'screen qp-screen' + (G ? ' qp-gia' : ' qp-miles')},
+    el('div',{class:'qp-top'},
+      el('button',{class:'btn small', onclick:()=>{ beep('tap'); qpReturn = false; screenHomeBase(); }},'← Home'),
+      el('div',{class:'qp-title'}, el('div',{class:'qp-tag'}, (G ? '🐉 DRAGON ACADEMY' : '🐾 BISCUIT & PALS') + ` · ${word} ${K.level}`), el('div',{class:'qp-name'}, L.title)),
+      el('div',{class:'qp-xp'}, el('span',{}, `${word} ${K.level}`),
+        el('div',{class:'qp-bar'}, el('i',{style:`width:${bossReady() || legend ? 100 : have / LEVEL_UP_STREAK * 100}%`}), el('em',{}, bossReady() ? '⚔️ Boss time!' : legend ? '👑 Legend' : `⭐⭐⭐ ${have} of ${LEVEL_UP_STREAK}`)),
+        el('span',{class:'qp-nx'}, K.level >= max ? '👑' : `${word} ${K.level + 1}`))),
+    msg ? el('div',{class:'banner'}, msg) : null,
+    stage,
+    el('div',{class:'qp-mm'}, el('div',{class:'qp-pill'}, `${word} ${Math.min(K.level, max)} of ${max}`), el('div',{class:'qp-mm-box', html: mm})),
+    el('p',{class:'qp-help'}, bossReady() ? `⚔️ The boss is out! Tap it to battle for ${word} ${K.level + 1}.` : `Tap the glowing stop. ⭐⭐⭐ = ${greatRule().short}. Purple +⭐ stops are bonus stars.`));
+  show(s);
+  if (!G) say(bossReady() ? 'The boss is here! Tap it to battle!' : 'Tap the glowing stop to read!');
+}
+const screenHomeBase = screenHome;
+screenHome = function(msg){
+  if (qpReturn){ qpReturn = false; return screenQuestPath(msg); }
+  screenHomeBase(msg);
+  try { // home: the level circles and the progress box open the Quest Path
+    const tt = $('.tier-track'); if (tt){ tt.classList.add('qp-link'); tt.onclick = () => { beep('tap'); screenQuestPath(); }; }
+    const lp = $('.lvl-progress'); if (lp && K.hero) lp.prepend(el('button',{class:'btn big qp-open', onclick:()=>{ beep('tap'); screenQuestPath(); }}, '🗺️ My Quest Path'));
+  } catch(e){}
+};
 })();
 
 
