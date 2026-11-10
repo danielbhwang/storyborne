@@ -1969,9 +1969,9 @@ body:not(.parent) .lvl-how{ background:linear-gradient(180deg,#fff6d2 0%,#f4d27a
 .qp-node{ cursor:pointer; }
 .qp-pulse{ animation:qpPulse 1.6s ease-in-out infinite; transform-origin:center; transform-box:fill-box; }
 @keyframes qpPulse{ 0%,100%{ opacity:.25; transform:scale(.9);} 50%{ opacity:.6; transform:scale(1.12);} }
-.qp-mm{ position:relative; margin:-70px auto 0; width:min(680px, 92%); background:rgba(15,23,42,.72); border-radius:18px; padding:4px 10px; }
+.qp-mm{ position:relative; margin:30px auto 0; width:min(680px, 96%); background:rgba(15,23,42,.72); border-radius:18px; padding:6px 10px; }
 .qp-mm-svg{ width:100%; display:block; overflow:visible; }
-.qp-pill{ position:absolute; top:-18px; right:90px; background:#2563eb; color:#fff; font:700 15px Georgia,serif; padding:6px 16px; border-radius:16px; box-shadow:0 3px 8px #0005; }
+.qp-pill{ position:absolute; top:-20px; left:50%; transform:translateX(-50%); white-space:nowrap; background:#2563eb; color:#fff; font:700 15px Georgia,serif; padding:6px 16px; border-radius:16px; box-shadow:0 3px 8px #0005; }
 .qp-help{ text-align:center; color:#fff; font-weight:700; text-shadow:0 1px 3px #000a; margin:12px 0; }
 .qp-open{ width:100%; margin-bottom:8px; }
 .tier-track.qp-link{ cursor:pointer; }
@@ -1996,3 +1996,26 @@ body:not(.parent) .lvl-how{ background:linear-gradient(180deg,#fff6d2 0%,#f4d27a
 html.lowfx .hero-svg.ah .ah-cape, html.lowfx .hero-svg.ah .hero-aura, html.lowfx .hero-svg.ah .hero-spark, html.lowfx .hero-svg .hero-cape, html.lowfx .qp-pulse{ animation:none !important; }
 html.lowfx .hero-svg.ah{ will-change:auto; }
 html.lowfx .lp-flyer svg *, html.lowfx .lp-pheroes svg *{ animation:none !important; }
+.comeback-tag{ display:inline-block; margin:2px auto 8px; background:#fef3c7; color:#92400e; border:2px solid #fbbf24; border-radius:999px; padding:4px 12px; font-weight:800; font-size:14px; }
+.spell-tracker table{ width:100%; margin-top:8px; }
+.spell-tracker summary{ cursor:pointer; }
+
+@media (max-width:700px){
+  .qp-top{ gap:8px; padding:8px 12px; }
+  .qp-name{ font-size:20px; }
+  .qp-xp{ margin-left:0; width:100%; }
+  .qp-bar{ flex:1; width:auto; }
+  .qp-pill{ font-size:13px; padding:4px 12px; top:-16px; }
+  .qp-help{ font-size:14px; }
+}
+.skill-card table{ width:100%; margin-top:8px; } .skill-card summary{ cursor:pointer; }
+/* painted armor piece icons */
+.armory-item .ai-pic.painted{ position:relative; display:flex; align-items:center; justify-content:center; }
+.armory-item .ai-pic.painted img{ width:84px; height:84px; object-fit:contain; filter:drop-shadow(0 3px 4px rgba(0,0,0,.35)); }
+.armory-item.locked .ai-pic.painted img{ filter:grayscale(1) brightness(.55); opacity:.7; }
+.armory-item.locked .ai-pic.painted{ font-size:26px; }
+.armory-item.locked .ai-pic.painted::after{ content:'🔒'; position:absolute; font-size:26px; }
+.pz-npc-img{ width:120px; height:120px; object-fit:contain; display:block; margin:0 auto; filter:drop-shadow(0 4px 4px rgba(0,0,0,.3)); }
+.armory-item .ai-pic.painted img.gear-shield{ width:54px; height:54px; margin-left:-22px; align-self:flex-end; }
+.hc-orig{ display:inline-flex; width:30px; height:30px; align-items:center; justify-content:center; font-size:18px; }
+.paint-more{ margin-top:14px; } .paint-more summary{ cursor:pointer; color:#6b5a44; font-size:14px; }

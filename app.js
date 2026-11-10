@@ -785,8 +785,6 @@ function screenFamilyLogin(mode = 'in', open = false){
 
   // ---- art from the game itself ----
   const night = dayPhase() === 'night';
-  const rider = withShowcase('boy', { hairStyle:'spiky', hairColor:'#3b2a1e' }, 'storm', () => mountSVG('phoenix', 230, true, true));
-  const rider2 = withShowcase('girl', { hairStyle:'long', outfit:'dress', hairColor:'#7c3a12' }, 'frost', () => mountSVG('frostmane', 170, true, true));
   const heroA = withShowcase('girl', { hairStyle:'long', outfit:'dress', hairColor:'#7c3a12' }, 'ember', () => heroSVG(150));
   const heroB = withShowcase('boy', { hairStyle:'spiky', hairColor:'#2b1d14' }, 'celestial', () => heroSVG(150));
   const boss = (tk, n, sz) => { try { return bossArt(BOSSES[tk][n], sz, tk); } catch(e){ return ''; } };
@@ -810,7 +808,6 @@ function screenFamilyLogin(mode = 'in', open = false){
   if (svg){ svg.removeAttribute('width'); svg.removeAttribute('height'); fitScene(); addEventListener('resize', fitScene); }
   const hero = el('section',{class:'lp-hero'},
     scene, el('div',{class:'lp-rays'}), sparks,
-    el('div',{class:'lp-flyer', html: rider}), el('div',{class:'lp-flyer two', html: rider2}),
     el('div',{class:'lp-top'},
       el('div',{class:'lp-head'},
       el('div',{class:'lp-crest', html: titleCrestSVG()}),
@@ -928,7 +925,13 @@ function screenPlayerEdit(id){
   const P = id ? DB.players[id] : { name:'', track:'son', style:'boy' };
   const name = el('input',{type:'text', placeholder:'First name', value:P.name, maxlength:'20'});
   let track = P.track, style = P.style, quiz = P.quiz || (P.track === 'daughter' ? 'challenge' : 'standard'), ear = P.ear || (P.track === 'son' ? 'kind' : 'normal');
+  let grade = P.grade || null, readsAt = P.readsAt || null, quizTouched = false;
+  const hint = el('p',{class:'muted pe-hint'});
+  const updHint = () => { if (!readsAt){ hint.textContent = 'Pick a grade and what they read now, and the game starts at the right level.'; return; }
+    const st = startFor(grade, readsAt, track); hint.textContent = `→ Starts at ${track === 'daughter' ? 'Rank' : 'Level'} ${st.level}: ${TRACKS[track].levels[st.level - 1].title} · ${st.quiz === 'standard' ? '🙂 Standard' : st.quiz === 'challenge' ? '🧠 Challenge' : '🔥 Expert'} questions. The game keeps adjusting as they read.`
+      + (track === 'daughter' && READS_AT[readsAt].i < 3 ? ' (Tip: Biscuit & Pals is the better track for early readers.)' : track === 'son' && READS_AT[readsAt].i >= 4 ? ' (Tip: Dragon Academy fits chapter-book readers.)' : ''); };
   const pick = (opts, cur, set) => { const wrap = el('div',{class:'pe-opts'}); opts.forEach(([v, big, small]) => { const b = el('button',{class:'pe-opt' + (cur === v ? ' on' : ''), onclick:()=>{ set(v); [...wrap.children].forEach(x => x.classList.toggle('on', x === b)); beep('tap'); }}, el('b',{}, big), el('small',{}, small)); wrap.append(b); }); return wrap; };
+  updHint();
   const pin = el('input',{type:'password', inputmode:'numeric', maxlength:'4', placeholder: id && P.pin ? 'New PIN (leave blank to keep)' : '4-digit PIN (optional)'});
   const msg = el('p',{class:'muted'});
   const saveIt = async () => {
@@ -937,7 +940,16 @@ function screenPlayerEdit(id){
     if (pin.value && !/^\d{4}$/.test(pin.value)){ msg.textContent = 'The PIN must be exactly 4 numbers.'; return; }
     let pid = id;
     if (!pid){ pid = 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); DB.players[pid] = { order: 10 + Object.keys(DB.players).length, created: todayStr() }; }
-    Object.assign(DB.players[pid], { name:n, track, style, quiz, ear });
+    const isNew = !id, levelChanged = readsAt && (readsAt !== P.readsAt || grade !== P.grade || track !== P.track);
+    const st = readsAt ? startFor(grade, readsAt, track) : null;
+    if (st && (isNew || levelChanged) && !quizTouched) quiz = st.quiz;
+    if (quizTouched && id && DB.kids[id]) delete DB.kids[id].quizAuto;
+    Object.assign(DB.players[pid], { name:n, track, style, quiz, ear, grade, readsAt });
+    if (st && (isNew || levelChanged)){
+      ensurePlayerData(); const kd = DB.kids[pid];
+      const ok = isNew || !kd.placed || await modal(el('div',{}, el('h2',{}, `Start ${n} at ${track === 'daughter' ? 'Rank' : 'Level'} ${st.level}?`), el('p',{}, `Now: ${track === 'daughter' ? 'Rank' : 'Level'} ${kd.level || 1}. Stars, gear and stories read are kept. Only the level and the great-read count change.`)), [['Yes, move','',true],['Keep current level','gray',false]]);
+      if (ok){ kd.level = st.level; kd.placed = true; kd.passStreak = 0; kd.failStreak = 0; kd.bossReady = null; kd.startLevel = st.level; delete kd.quizAuto; }
+    }
     if (pin.value) DB.players[pid].pin = await pinHash(pid, pin.value);
     ensurePlayerData(); CLOUD.dirty[pid] = true; save(); cloudSubscribeAll(); beep('star');
     if (!id) await modal(el('div',{}, el('div',{class:'big-e'},'🎉'), el('h2',{}, `${n} joined Storyborne!`), el('p',{}, `${n} can now tap their hero on the "Who is reading?" screen` + (pin.value ? ' and type their PIN.' : '.'))), [['Great ▶','',1]]);
@@ -947,10 +959,13 @@ function screenPlayerEdit(id){
     el('div',{class:'row', style:'justify-content:space-between;margin-bottom:12px'}, el('h1',{style:'margin:0;font-size:28px'}, id ? '✏️ Edit ' + P.name : '➕ New player'), el('button',{class:'btn small gray', onclick:screenPlayers},'Cancel')),
     el('div',{class:'card pe-card'},
       el('h3',{}, 'First name'), name,
-      el('h3',{}, 'Reading track'), pick([['son', '🐲 ' + TRACK_INFO.son.name, TRACK_INFO.son.ages], ['daughter', '🐉 ' + TRACK_INFO.daughter.name, TRACK_INFO.daughter.ages]], track, v => track = v),
+      el('h3',{}, 'Reading track'), pick([['son', '🐲 ' + TRACK_INFO.son.name, TRACK_INFO.son.ages], ['daughter', '🐉 ' + TRACK_INFO.daughter.name, TRACK_INFO.daughter.ages]], track, v => { track = v; updHint(); }),
       id && track !== P.track ? null : null,
+      el('h3',{}, 'Grade'), pick(GRADES.map(g => [g[0], g[1], g[2]]), grade, v => { grade = v; updHint(); }),
+      el('h3',{}, 'What can they read on their own right now?'), pick(Object.entries(READS_AT).map(([k, r]) => [k, r.e + ' ' + r.name, r.ex]), readsAt, v => { readsAt = v; updHint(); }),
+      hint,
       el('h3',{}, 'Starter outfit'), pick([['girl','👗 Blossom','Pink dress & hair bow'], ['boy','🧢 Explorer','Blue jacket & red scarf']], style, v => style = v),
-      el('h3',{}, 'Story questions'), pick([['standard','🙂 Standard','Questions as written'], ['challenge','🧠 Challenge','Tricky choices, order of events, spot the fake. Chapter-book readers move up to Expert at Rank 5'], ['expert','🔥 Expert','Who said it, 4-event order, spot the changed detail, word meanings, all from memory']], quiz, v => quiz = v),
+      el('h3',{}, 'Story questions'), pick([['standard','🙂 Standard','Questions as written'], ['challenge','🧠 Challenge','Tricky choices, order of events, spot the fake. Chapter-book readers move up to Expert at Rank 5'], ['expert','🔥 Expert','Who said it, 4-event order, spot the changed detail, word meanings, all from memory']], quiz, v => { quiz = v; quizTouched = true; }),
       el('h3',{}, 'Listening'), pick([['kind','👂 Extra forgiving','Best for young readers & quiet voices'], ['normal','🎯 Normal','Closer check of each word']], ear, v => ear = v),
       el('h3',{}, 'Kid PIN'), pin, el('p',{class:'muted'}, 'Kids type this after tapping their hero, so siblings don\'t play as each other. Forgot it? Set a new one here.'),
       id && P.pin ? el('button',{class:'btn small gray', onclick:()=>{ delete DB.players[id].pin; save(); msg.textContent = 'PIN removed.'; }}, 'Remove PIN') : null,
@@ -1327,7 +1342,8 @@ function spellWords(n = 5, minLen = 3){
   pool = pool.filter(w => /^[a-z]+$/.test(w) && w.length >= 3 && w.length <= maxLen && !PROPER.has(w));
   const tricky = practiceWords(K).filter(w => /^[a-z]+$/.test(w) && w.length >= 2 && w.length <= maxLen && !PROPER.has(w));
   pool = pool.filter(w => w.length >= minLen);
-  return [...new Set(shuffle(tricky).slice(0,2).concat(shuffle(pool)))].slice(0, n);
+  const back = spellDue().slice(0, Math.max(2, Math.ceil(n / 2)));      // missed spelling words come back first
+  return [...new Set(shuffle(back).concat(shuffle(tricky).slice(0, back.length ? 1 : 2), shuffle(pool)))].slice(0, n);
 }
 
 /* ---------- Gianna: quiet reading (no microphone) ----------
@@ -1460,6 +1476,7 @@ function startSpellCheck(){
       checked = true; input.disabled = true;
       const ok = input.value.trim().toLowerCase() === w;
       results.push({ w, ok });
+      spellLog(w, ok, input.value, 'Spelling Check');
       if (ok){ right++; beep('ok'); burst(pick(['YES!','WOW!','NICE!'])); fb.textContent = '✅ Correct!'; fb.style.color = 'var(--ok)'; input.classList.add('right'); }
       else {
         beep('bad'); fb.textContent = `It's spelled: ${w}`; fb.style.color = 'var(--bad)'; input.classList.add('wrong'); say(`${w} is spelled ${w.split('').join(', ')}`, { rate:0.8 });
@@ -1474,6 +1491,7 @@ function startSpellCheck(){
         el('div',{class:'pageinfo'}, `✏️ Spelling Check · ${i + 1} / ${words.length}`), el('div',{style:'width:80px'})),
       el('div',{class:'card center spell-card'},
         el('p',{class:'q-text'},'Listen, then type the word!'),
+        spellIsComeback(w) ? el('div',{class:'comeback-tag'},'🔁 This word came back. You can do it!') : null,
         el('div',{class:'row center'},
           el('button',{class:'btn blue big', onclick:()=>say(w, { rate:0.8 })},'🔊 Hear word'),
           sent ? el('button',{class:'btn', onclick:()=>say(sent, { rate:0.9 })},'🔊 Hear it in a sentence') : null),
@@ -1582,6 +1600,8 @@ function startSpellStreak(rewarded){
   let streak = 0, earned = 0, over = false;
   const nextWord = () => {
     const tier = spellTierFor(streak);
+    const back = spellDue().map(w => SPELL_BANK.find(b => b[0] === w)).filter(b => b && !used.has(b[0]));
+    if (back.length && streak > 0 && Math.random() < .4){ const W = back[0]; used.add(W[0]); return W; }   // a missed word comes back
     let pool = SPELL_BANK.filter(w => w[3] === tier && !used.has(w[0]));
     if (!pool.length) pool = SPELL_BANK.filter(w => !used.has(w[0]));
     const W = pick(pool); used.add(W[0]); return W;
@@ -1617,6 +1637,7 @@ function startSpellStreak(rewarded){
       const guess = typed.join('');
       if (guess.length < word.length) return;
       if (guess === word){
+        spellLog(word, true);
         streak++;
         const st = rewarded ? spellStarsFor(streak) : 0;
         if (st){ K.stars += st; earned += st; }
@@ -1629,6 +1650,7 @@ function startSpellStreak(rewarded){
         say(pick(['Yes!','Correct!','You got it!','Great spelling!','Awesome!']));
         setTimeout(ask, 900);
       } else {
+        spellLog(word, false, guess, 'Spelling Streak');
         slots.classList.add('bad'); beep('bad');
         await say(`Oh no! ${word} is spelled ${word.split('').join(', ')}.`, { rate: .75 });
         finish(W, guess);
@@ -2087,8 +2109,44 @@ function challengeQuiz(story){
   while (out.length < 5 && base.length > out.length){ const q = base.find(b => !keep.includes(b) && !out.some(o => o.q === b[0])); if (!q) break; out.push({ q:q[0], opts: shuffle(q[1].map((t, i) => ({ t, right: i === q[2] }))) }); }
   return out.slice(0, 5);
 }
+const GRADES = [['prek','Pre-K','age 4'], ['k','Kinder','age 5–6'], ['1','1st','age 6–7'], ['2','2nd','age 7–8'], ['3','3rd','age 8–9'], ['4','4th+','age 9+']];
+// what the child reads alone right now → starting level on each track
+const READS_AT = {
+  letters:  { i:0, e:'🔤', name:'Learning letters', ex:'Knows some letter sounds',            son:1, dau:1, quiz:'standard' },
+  cvc:      { i:1, e:'🐱', name:'Sounds out short words', ex:'cat, map, sit',                 son:2, dau:1, quiz:'standard' },
+  sentences:{ i:2, e:'✏️', name:'Simple sentences', ex:'"The cat sat on a mat."',             son:4, dau:1, quiz:'standard' },
+  early:    { i:3, e:'📗', name:'Easy readers', ex:'Pete the Cat, Elephant & Piggie',          son:5, dau:2, quiz:'standard' },
+  chapter:  { i:4, e:'📘', name:'Early chapter books', ex:'Dragon Masters, Magic Tree House', son:7, dau:4, quiz:'challenge' },
+  longer:   { i:5, e:'📚', name:'Longer chapter books', ex:'reads 100+ page books easily',     son:9, dau:7, quiz:'challenge' }
+};
+function startFor(grade, readsAt, track){
+  const R = READS_AT[readsAt] || READS_AT.early, gi = Math.max(0, GRADES.findIndex(g => g[0] === grade));
+  let level = track === 'daughter' ? R.dau : R.son;
+  if (R.i >= 3 && gi >= 4) level += 1;                         // an older reader at the same stage gets a small bump
+  level = Math.max(1, Math.min(TRACKS[track].levels.length, level));
+  const quiz = R.i >= 5 && gi >= 3 ? 'expert' : R.quiz;
+  return { level, quiz };
+}
+// questions get harder or easier by themselves: last 6 story quizzes ≥ 90% → step up, < 55% → step down (at most every 3 days)
+const QUIZ_STEPS = ['standard','challenge','expert'];
+function autoQuizTune(){
+  const P = playerOf(kid); if (!P || P.wizard) return null;
+  const rec = (K.sessions || []).filter(s => s.kind === 'story' && s.mode === 'normal' && s.quiz).slice(0, 6);
+  if (rec.length < 6) return null;
+  if (K.quizTuneAt && (Date.now() - new Date(K.quizTuneAt).getTime()) < 3 * 86400000) return null;
+  const avg = rec.reduce((t, s) => { const [c, n] = s.quiz.split('/').map(Number); return t + c / n; }, 0) / rec.length;
+  const cur = quizLevelOf(kid), i = QUIZ_STEPS.indexOf(cur);
+  let next = null;
+  if (avg >= .9 && i < 2) next = QUIZ_STEPS[i + 1];
+  else if (avg < .55 && i > 0) next = QUIZ_STEPS[i - 1];
+  if (!next) return null;
+  K.quizAuto = next; K.quizTuneAt = new Date().toISOString();
+  (K.quizLog = K.quizLog || []).unshift({ at: K.quizTuneAt, from: cur, to: next, avg: Math.round(avg * 100) }); K.quizLog = K.quizLog.slice(0, 20);
+  return next;
+}
 const quizLevelOf = id => { const P = playerOf(id), k = DB.kids[id], lv = k ? k.level : 1;
-  const q = P && P.quiz ? P.quiz : trackOf(id) === 'daughter' ? 'challenge' : 'standard';
+  const q = k && k.quizAuto ? k.quizAuto : P && P.quiz ? P.quiz : trackOf(id) === 'daughter' ? 'challenge' : 'standard';
+  if (k && k.quizAuto) return q;
   return q === 'challenge' && trackOf(id) === 'daughter' && lv >= 5 ? 'expert' : q; };   // Gia: Challenge becomes Expert from Rank 5
 function screenQuiz(){
   if (run.act.boss && !run.opts.boss) run.opts.boss = run.act.boss;   // Gianna's boss read arrives here before opts are set
@@ -2115,6 +2173,7 @@ function screenQuiz(){
   }
   if (!qs || qs.length < 3) qs = st.qs.slice(0, 5).map(([q, opts, ans]) => ({ q, opts: shuffle(opts.map((o,i)=>({ t:o, right:i===ans }))) }));
   if (!qs.extra){ try { qs.extra = shuffle(expertExtras(st)).filter(x => !qs.some(y => y.q === x.q)); } catch(e){ qs.extra = []; } }
+  try { const ex = qs.extra; qs = finishQuiz(qs, st); qs.extra = ex; } catch(e){ console.warn('finishQuiz', e); }
   run.quiz = { qs, i:0, correct:0 };
   // boss battles: every answer is saved the moment it's tapped, so leaving the game can't erase a wrong answer
   if (run.opts.boss){
@@ -2156,29 +2215,32 @@ function renderQuestion(){
       if (!item.frostUsed) trackQ(item.q, o.right);
       if (memory && !item.looked && o.right){ run.proofStars = (run.proofStars || 0) + 1; setTimeout(() => { fb.textContent += '  🧠 Memory bonus +1 ⭐'; }, 30); }
       if (memory) reveal(false);
-      if (o.right){ b.classList.add('right'); Q.correct++; powerOnAnswer(Q, true, fb); beep('ok'); burst(); if (run.opts.boss) bossHud(true); fb.textContent = pick(['Yes! 🎉','You got it! ⭐','Awesome! 🙌','Correct! 🌟']); fb.style.color = 'var(--ok)'; startProof(o.t); }
+      skillLog(QTYPE(item.q), o.right);
+      if (o.right){ b.classList.add('right'); Q.correct++; powerOnAnswer(Q, true, fb); beep('ok'); burst(); if (run.opts.boss) bossHud(true); fb.textContent = pick(['Yes! 🎉','You got it! ⭐','Awesome! 🙌','Correct! 🌟']); fb.style.color = 'var(--ok)'; proofOn = startProof(o.t); }
       else {
         b.classList.add('wrong'); beep('bad'); fb.textContent = 'Good try! The answer is highlighted in green.'; fb.style.color = 'var(--bad)'; powerOnAnswer(Q, false, fb);
         [...opts.children].forEach((c, idx) => { if (item.opts[idx].right) c.classList.add('right'); });
       }
-      nextBtn.classList.remove('hidden');
+      if (!proofOn) nextBtn.classList.remove('hidden');   // with a proof step, Next appears once the proof is found (or shown)
     });
     opts.append(b);
   });
   // Gianna's quiet reads: after a right answer, find the sentence in the story that proves it (+1 ⭐).
   // Skipped for feeling/opinion questions where no single sentence clearly says the answer.
+  let proofOn = false;
   const startProof = answer => {
-    if (!run.act.quiet) return;
+    if (!run.act.quiet) return false;
     const sc = proofScores(card.sentences, item.q, answer.replace(/[^\w\s'’-]/g,' ')), best = Math.max(0, ...sc);
-    if (best < 2) return;
+    if (best < 2) return false;
     let tries = 0;
     proofBox.classList.remove('hidden');
-    proofBox.textContent = '🔎 Bonus: tap the sentence in the story that proves your answer!';
+    proofBox.textContent = run.opts.boss ? '🔎 Now tap the sentence in the story that proves your answer!' : '🔎 Prove it! Tap the sentence in the story that proves your answer. (Proof = full point)';
+    const done = () => { nextBtn.classList.remove('hidden'); };
     card.proof((s, spans) => {
       card.sentSpans.forEach(sp => (sp || []).forEach(n => n.classList.remove('proof-pick','proof-ok','proof-no')));
       if (sc[s] >= Math.max(2, best * 0.6)){
         spans.forEach(n => n.classList.add('proof-ok')); card.proof(null);
-        run.proofStars = (run.proofStars || 0) + 1; beep('star'); burst('PROOF!');
+        run.proofStars = (run.proofStars || 0) + 1; beep('star'); burst('PROOF!'); skillLog('evidence', true); done();
         proofBox.textContent = '🔎 Great detective work! That sentence proves it. +1 ⭐';
       } else if (++tries < 2){
         spans.forEach(n => n.classList.add('proof-no')); beep('bad');
@@ -2186,9 +2248,11 @@ function renderQuestion(){
       } else {
         card.proof(null);
         card.sentSpans[sc.indexOf(best)].forEach(n => n.classList.add('proof-ok'));
-        proofBox.textContent = '🔎 Here\'s the sentence that proves it, in green.';
+        skillLog('evidence', false); if (!run.opts.boss) Q.correct -= .5; done();
+        proofBox.textContent = run.opts.boss ? '🔎 Here\'s the sentence that proves it, in green.' : '🔎 Here\'s the proof, in green. Half a point this time: always check the story!';
       }
     });
+    return true;
   };
   const st = run.act.story;
   const card = passageCard(run.act.book
@@ -2196,7 +2260,7 @@ function renderQuestion(){
       : (st.emoji ? st.emoji + ' ' : '') + st.title,
     st.text, run.marks || (run.marks = {}));
   // Challenge mode: the story starts hidden. Answer from memory for a bonus star, or tap to look back.
-  const memory = ['challenge','expert'].includes(quizLevelOf(kid)) && !run.opts.boss;
+  const memory = quizLevelOf(kid) === 'challenge' && !run.opts.boss;   // Expert is open-book, like the SAT/ACT
   const reveal = looked => { card.classList.remove('peek-hidden'); const c = card.querySelector('.peek-cover'); if (c) c.remove(); if (looked) item.looked = true; };
   if (memory){ card.classList.add('peek-hidden'); card.append(el('div',{class:'peek-cover'},
     el('div',{class:'peek-e'},'🧠'), el('b',{}, 'Answer from memory for +1 ⭐'),
@@ -2466,6 +2530,8 @@ async function commitResults(stars, quiz){
     quiz: quiz ? quiz.c + '/' + quiz.t : null, missed:[...new Set(R.missed)].slice(0,20), stars, hasRec: r.clips.length > 0, ms: elapsed, book: a.book ? a.book.id : null };
   if (a.kind === 'story' && r.opts.mode === 'normal' && a.title){ if (!K.readCount) K.readCount = readCounts(); K.readCount[a.title] = (K.readCount[a.title] || 0) + 1; }
   K.sessions.unshift(rec); K.sessions = K.sessions.slice(0, 200);
+  let tuned = null; try { if (a.kind === 'story' && r.opts.mode === 'normal') tuned = autoQuizTune(); } catch(e){}
+  if (tuned) setTimeout(() => burst(QUIZ_STEPS.indexOf(tuned) > 0 && tuned !== 'standard' ? '🧠 TRICKIER!' : '👍'), 1500);
   if (r.clips.length) idb.put(r.sessionId, r.clips);
   try { if (typeof v2StoryHook === 'function' && r.opts.mode === 'normal') v2StoryHook(r, R); } catch(e){ console.warn('v2 hook', e); }
 
@@ -2629,10 +2695,14 @@ function avatarSVG(av, size=160, override={}){
   s += BG[eq.bg || 'none']();
   s += layer(typeof AURA !== 'undefined' ? AURA : null, eq.aura);
   s += layer(BACK, eq.back, col);
+  const bimg = typeof buddyArt === 'function' ? buddyArt(base) : null;
+  if (bimg) s += `<image href="${bimg}" x="10" y="20" width="180" height="195" preserveAspectRatio="xMidYMax meet"/>`;   // painted buddy: face/hat/neck add-ons don't fit a painting, so they're skipped
+  else {
   s += BODY[base](col, dark);
   s += layer(typeof NECK !== 'undefined' ? NECK : null, eq.neck);
   s += layer(FACE, eq.face, base);
   s += layer(HEAD, eq.head, base);
+  }
   s += layer(typeof SHIELD !== 'undefined' ? SHIELD : null, eq.shield);
   s += layer(HAND, eq.hand);
   s += layer(typeof PET !== 'undefined' ? PET : null, eq.pet);
@@ -4408,9 +4478,9 @@ function buildGame(items, poolWords, header, done){
     };
     const check = () => {
       const got = placed.map(t => t.p).join('');
-      if (got === it.word){ if (tries === 0) right++; fb.textContent = '✅ ' + pick(['You built it!','Perfect spelling!','Nailed it!']); fb.style.color = 'var(--ok)'; beep('ok'); burst();
+      if (got === it.word){ if (tries === 0){ right++; spellLog(it.word, true); } fb.textContent = '✅ ' + pick(['You built it!','Perfect spelling!','Nailed it!']); fb.style.color = 'var(--ok)'; beep('ok'); burst();
         say(it.word); setTimeout(() => { k++; render(); }, 1400); }
-      else { tries++; beep('bad'); fb.style.color = 'var(--bad)';
+      else { tries++; if (tries === 1) spellLog(it.word, false, got, 'Letter tiles'); beep('bad'); fb.style.color = 'var(--bad)';
         if (tries >= 2){ fb.textContent = `It's spelled: ${it.parts.join(' · ')}`; say(`${it.word} is spelled ${it.parts.join(', ')}`); setTimeout(() => { k++; render(); }, 2600); }
         else { fb.textContent = 'Not quite! Listen again and try.'; setTimeout(() => { placed.length = 0; draw(); say(it.word, {rate:0.6}); }, 900); } }
     };
@@ -4418,6 +4488,7 @@ function buildGame(items, poolWords, header, done){
     show(el('div',{class:'screen'}, header(),
       el('div',{class:'card center'},
         el('p',{class:'q-text'}, '🧱 Build the word you hear!'),
+        spellIsComeback(it.word) ? el('div',{class:'comeback-tag'},'🔁 This word came back. You can do it!') : null,
         el('div',{class:'row center'}, el('button',{class:'btn blue big', onclick:()=>say(it.word, {rate:0.7})},'🔊 Hear word'), el('button',{class:'btn', onclick:()=>say(it.word, {rate:0.35})},'🐢 Slowly')),
         slots, tray, fb, el('p',{class:'muted'}, `Word ${k+1} of ${items.length} · tap a filled box to take a tile back`))));
     say(it.word, { rate:0.7 });
@@ -5309,10 +5380,63 @@ function heroSVGClassic(size=200, override={}){
 /* ---------- Hero Art 3.0: anime hero cards (Gia = Rune Reader, Miles = Hard-Light Knight) ---------- */
 const HERO_CLASSIC = /[?&]classic=1/.test(location.search);
 const HERO_WAIST = HERO_CLASSIC ? .68 : .56, HERO_CLIP = HERO_CLASSIC ? .13 : .15;
+/* painted avatar images (made by Dan in an image generator, face-locked by Claude): heroes/<gia|miles>_t<tier>.png
+   (the old avatars/ folder is retired: its t0 files became gia_t7 / miles_t4)
+   AVATAR_IMAGES lists the ones shipped; any other file found on the site is picked up automatically next time. */
+const AVATAR_IMAGES = { gia:[0,1,7], miles:[0,1,4] };
+const avatarFound = (() => { try { return JSON.parse(localStorage.getItem('sb_heroImgs') || '{}'); } catch(e){ return {}; } })();
+function avatarHas(who, t){ return (AVATAR_IMAGES[who] || []).includes(t) || (avatarFound[who] || []).includes(t); }
+(function probeAvatars(){   // look for newly uploaded tiers once per load; no screen flicker, used from the next screen on
+  if (/^file:/.test(location.href) && !navigator.webdriver) return;
+  ['gia','miles'].forEach(who => { for (let t = 0; t <= 12; t++){ if (avatarHas(who, t)) continue;
+    const im = new Image(); im.onload = () => { (avatarFound[who] = avatarFound[who] || []).push(t); try { localStorage.setItem('sb_heroImgs', JSON.stringify(avatarFound)); } catch(e){} };
+    im.src = `heroes/${who}_t${t}.png?v=${(document.querySelector('script[src*="app.js"]') || {}).src?.split('v=')[1] || ''}`; } });
+})();
+// the painted image to show for this hero: the equipped chest tier, or the nearest lower tier that has a picture
+function avatarImgFor(override = {}){
+  if (HERO_CLASSIC || !K) return null;
+  const kidId = Object.keys(DB.kids).find(x => DB.kids[x] === K);
+  const who = kidId === 'daughter' && /^gia/i.test(kidName(kidId)) ? 'gia' : kidId === 'son' && /^miles/i.test(kidName(kidId)) ? 'miles' : null;
+  const own = kidId ? paintedHeroOf(kidId) : null;   // a painting uploaded by a grown-up wins
+  if (own) return own;
+  const base = who || (heroKidKey() === 'daughter' ? 'gia' : 'miles');   // everyone else wears the painted body for their style
+  const tint = Object.assign({}, K.hero || {}, override.hero || {}).paintTint;
+  const G = heroState(), eq = Object.assign({}, G.eq, override.eq || {}), ch = eq.chest && SET_BY_ID[eq.chest];
+  const tier = ch ? Math.min(12, ch.tier) : 0;
+  let pic = null;
+  for (let t = tier; t >= 0 && !pic; t--) if (avatarHas(base, t)) pic = `heroes/${base}_t${t}.png`;
+  for (let t = tier + 1; t <= 12 && !pic; t++) if (avatarHas(base, t)) pic = `heroes/${base}_t${t}.png`;   // no picture at or below yet: lowest one above
+  return pic ? tintedHero(pic, tint) : null;
+}
+// Living portrait: the painted PNG breathes, sways, glows and sheds sparkles (SMIL, so it runs on old iPads and isn't killed by lowfx). Small thumbnails stay still.
+function heroImgBody(img, size, glow){
+  const mystery = false;
+  const fid = 'my' + (++heroSeq);
+  const pic = mystery
+    ? `<filter id="${fid}"><feColorMatrix type="matrix" values="0 0 0 0 .2  0 0 0 0 .14  0 0 0 0 .4  0 0 0 1 0"/></filter><image href="${img}" x="0" y="0" width="200" height="248" preserveAspectRatio="xMidYMax meet" filter="url(#${fid})"/><text x="100" y="150" text-anchor="middle" font-size="64" font-weight="900" fill="#fde68a" stroke="#7c3aed" stroke-width="3" font-family="Fredoka,sans-serif">?</text>`
+    : `<image href="${img}" x="0" y="0" width="200" height="248" preserveAspectRatio="xMidYMax meet"/>`;
+  if (size < 120 || navigator.webdriver && !/[?&]anim=1/.test(location.search)) return pic;
+  const d = (2.8 + Math.random() * .8).toFixed(2), off = (-Math.random() * 3).toFixed(2);
+  const spark = [[58,1.9,0],[142,2.3,.7],[80,2.6,1.4],[124,2.1,2.1],[100,2.8,1.1]].map(([x, r, b]) =>
+    `<circle cx="${x}" cy="200" r="${r}" fill="${glow}" opacity="0"><animate attributeName="cy" values="200;70" dur="3.4s" begin="${b}s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;.9;0" dur="3.4s" begin="${b}s" repeatCount="indefinite"/></circle>`).join('');
+  const gid = 'hg' + Math.random().toString(36).slice(2, 8);
+  return `<defs><radialGradient id="${gid}"><stop offset="0" stop-color="${glow}" stop-opacity=".9"/><stop offset=".55" stop-color="${glow}" stop-opacity=".35"/><stop offset="1" stop-color="${glow}" stop-opacity="0"/></radialGradient></defs>`
+    + `<ellipse cx="100" cy="150" rx="78" ry="104" fill="url(#${gid})" opacity=".16"><animate attributeName="opacity" values=".22;.45;.22" dur="${d}s" begin="${off}s" repeatCount="indefinite"/></ellipse>`
+    + `<g transform="translate(100 248)"><g><animateTransform attributeName="transform" type="rotate" values="0;.7;0;-.7;0" dur="${(d*2).toFixed(2)}s" begin="${off}s" repeatCount="indefinite"/>`
+    + `<g><animateTransform attributeName="transform" type="scale" values="1 1;1.008 1.016;1 1" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1" dur="${d}s" begin="${off}s" repeatCount="indefinite"/>`
+    + `<g transform="translate(-100 -248)">${pic}</g></g></g></g>` + spark;
+}
 function heroSVG(size = 200, override = {}){
   if (HERO_CLASSIC) return heroSVGClassic(size, override);
+  const img = avatarImgFor(override);
+  if (img){
+    const full = override.eq ? null : fullSetOn(), gem = full ? full.gem : '#c084fc';
+    return `<svg viewBox="0 0 200 250" width="${size}" height="${size*1.25}" xmlns="http://www.w3.org/2000/svg" class="hero-svg hero-img" style="overflow:visible">`
+      + `<ellipse cx="100" cy="244" rx="52" ry="7" fill="#000" opacity=".25"/>` + (full ? `<ellipse cx="100" cy="244" rx="46" ry="5" fill="none" stroke="${gem}" stroke-width="2" opacity=".8"/>` : '')
+      + heroImgBody(img, size, full ? gem : (heroKidKey() === 'daughter' ? '#e879f9' : '#5eead4')) + `</svg>`;
+  }
   const girl = heroKidKey() === 'daughter';
-  const h = Object.assign({ skin: SKIN_TONES[1], hairColor: girl ? '#7c3aed' : '#1f1b18', hairStyle: 'short', weapon: 'sword' }, K.hero || {}, override.hero || {});
+  const h = Object.assign({ skin: SKIN_TONES[1], hairColor: girl ? '#7c3aed' : '#1f1b18', hairStyle: girl ? 'short' : 'spiky', weapon: 'sword' }, K.hero || {}, override.hero || {});
   const G = heroState(), eq = Object.assign({}, G.eq, override.eq || {});
   const S = slot => (eq[slot] && eq[slot] !== 'traveler' && SET_BY_ID[eq[slot]]) || null;
   const full = override.eq ? null : fullSetOn();
@@ -5344,7 +5468,7 @@ function heroSVG(size = 200, override = {}){
   const we = S('weapon'); if (we) C.wglow = we.gem;
   if (robeOn){ const R = wizColors(ROBE_BY[WZo.robe], WZo.house); if (R){ C.coat = R.prim; C.coat2 = sh(R.prim, -.35); C.trim = R.sec; } }
   const sp = S('shoulders'), tier = ch ? ch.tier : 0;
-  const hs = (h.hairStyle === 'long' || h.hairStyle === 'ponytail') ? h.hairStyle : girl ? 'bob' : 'spiky';
+  const hs = h.hairStyle === 'short' ? (girl ? 'bob' : 'short') : ['spiky','long','ponytail','curly','buns'].includes(h.hairStyle) ? h.hairStyle : girl ? 'bob' : 'spiky';
   const eye = h.eyes || (girl ? '#ec4899' : '#2563eb'), hair = h.hairColor, skin = h.skin;
   const gem = full ? full.gem : C.glow;
   const SY = .8, BT = `translate(0 434) scale(1 ${SY}) translate(0 -434)`, HT = `translate(0 ${(434 - 288 * SY - 146).toFixed(1)})`;
@@ -5367,6 +5491,8 @@ function heroSVG(size = 200, override = {}){
   const hairF = lin([[0, sh(hair, .15)], [1, sh(hair, -.45)]]);
   if (hs === 'long') body += P('M124 76 C104 140 112 220 98 296 Q118 282 128 296 Q122 230 136 170 Q150 210 150 230 Q150 210 164 170 Q178 230 172 296 Q182 282 202 296 C188 220 196 140 176 76Z', hairF);
   if (hs === 'ponytail') body += P('M170 70 C206 74 214 130 204 190 C200 220 210 250 220 266 C196 262 186 232 190 196 C194 150 188 110 168 92Z', hairF);
+  if (hs === 'curly') for (let i = 0; i <= 14; i++){ const a = Math.PI * (.78 + i * 1.44 / 14); body += `<circle cx="${(150 + Math.cos(a) * 33).toFixed(1)}" cy="${(94 + Math.sin(a) * 40).toFixed(1)}" r="11.5" fill="${hairF}"/>`; }
+  if (hs === 'buns') [126, 174].forEach(x => { body += `<circle cx="${x}" cy="58" r="14" fill="${hairF}"/><path d="M${x - 9} 54 q9 -8 18 0" stroke="${sh(hair, .35)}" stroke-width="2" fill="none" opacity=".7"/>`; });
   if (hs === 'bob') body += P('M122 84 C116 120 118 140 124 152 Q136 146 140 152 L160 152 Q164 146 176 152 C182 140 184 120 178 84Z', hairF);
   body += `</g><g transform="${BT}">`;
   const leg = cloth(C.legs), bt = cloth(C.boots);
@@ -5416,12 +5542,14 @@ function heroSVG(size = 200, override = {}){
   body += L('M150.5 112 l-1.6 4.2 l2 .4', '#c08470', 1.2);
   body += girl ? `<path d="M145.5 123.5 Q150 128 154.5 123.5 Q150 125 145.5 123.5Z" fill="#b5475c" stroke="${INKc}" stroke-width="1.1"/>` : L('M146 124.5 Q150 126.5 154 124', '#7a3341', 1.5);
   body += `<ellipse cx="135" cy="117" rx="5" ry="2.2" fill="#ff8fa3" opacity=".22"/><ellipse cx="165" cy="117" rx="5" ry="2.2" fill="#ff8fa3" opacity=".22"/>`;
+  if (h.freckles) [[131,114],[135,116.5],[139,114],[133,119],[161,114],[165,116.5],[169,114],[167,119]].forEach(([x, y]) => body += `<circle cx="${x}" cy="${y}" r=".9" fill="#a0522d" opacity=".75"/>`);
   if (h.beard) body += P('M128 112 Q132 134 150 142 Q168 134 172 112 Q164 126 150 126 Q136 126 128 112Z', h.beardColor || '#f1f5f9', 1.8);
   // ---- hair (front) ----
   const hairT = lin([[0, sh(hair, .3)], [.6, hair], [1, sh(hair, -.3)]]);
   if (hs === 'spiky') body += P('M122 98 C114 82 112 66 120 56 L114 40 L130 46 L132 28 L144 42 L152 22 L160 40 L172 28 L174 46 L188 42 L180 58 C188 70 186 86 178 98 L172 84 L168 100 L160 80 L154 100 L148 78 L140 98 L136 80 L130 98Z', hairT);
   else body += P('M123 96 C119 66 134 52 150 52 C166 52 181 66 177 96 L171 82 L168 100 L161 78 L156 99 L150 74 L144 98 L139 78 L132 99 L129 82Z', hairT);
-  if (hs !== 'spiky'){ const lock = P('M126 84 C120 112 124 132 118 152 C128 144 132 124 133 100Z', hairT); body += lock + MIR(lock); }
+  if (hs === 'curly') [[128,66],[139,58],[150,55],[161,58],[172,66],[124,80],[176,80]].forEach(([x, y]) => body += `<circle cx="${x}" cy="${y}" r="8" fill="${hairT}"/>`);
+  if (hs !== 'spiky' && hs !== 'short' && hs !== 'curly'){ const lock = P('M126 84 C120 112 124 132 118 152 C128 144 132 124 133 100Z', hairT); body += lock + MIR(lock); }
   body += L('M132 64 Q146 56 160 60', '#fff', 3, 'opacity=".45"') + L('M138 70 Q146 66 152 67', '#fff', 1.6, 'opacity=".35"');
   // ---- headgear ----
   if (hatOn) body += `<g transform="translate(76 48.6) scale(.74)">${hatArt(WZo.hat, WZo.house)}</g>`;
@@ -5467,25 +5595,25 @@ function heroNode(size=170, withBuddy=true){
 
 /* ---------- hero creator ---------- */
 function screenHeroCreate(after){
-  const h = Object.assign({ skin:SKIN_TONES[1], hairColor:HAIR_COLORS[1], hairStyle: styleOf(kid) === 'girl' ? 'long' : 'spiky', weapon:'sword', outfit: styleOf(kid) === 'girl' ? 'dress' : 'pants', bow: styleOf(kid) === 'girl' }, K.hero || {});
+  const t = Object.assign({}, (K.hero || {}).paintTint || {});
   const prev = el('div',{class:'hero-create-prev'});
-  const draw = () => { prev.innerHTML = heroSVG(220, { hero:h }); };
-  const row = (label, items, render, key) => el('div',{class:'hc-row'}, el('h3',{}, label),
-    el('div',{class:'hc-opts'}, ...items.map(v => { const b = el('button',{class:'hc-opt' + (h[key] === v ? ' on' : ''), onclick:()=>{ h[key] = v; [...b.parentNode.children].forEach(x => x.classList.toggle('on', x === b)); draw(); beep('tap'); }}, render(v)); return b; })));
+  const draw = () => { prev.innerHTML = heroSVG(220, { hero:{ paintTint:t } }); };
+  const row = (label, key, items, render) => el('div',{class:'hc-row'}, el('h3',{}, label),
+    el('div',{class:'hc-opts'}, ...items.map(v => { const b = el('button',{class:'hc-opt' + ((t[key] || null) === v ? ' on' : ''), onclick:()=>{
+        if (v === null) delete t[key]; else t[key] = v;
+        [...b.parentNode.children].forEach(x => x.classList.toggle('on', x === b)); draw(); beep('tap'); }}, render(v)); return b; })));
+  const sw = c => c === null ? el('span',{class:'hc-orig'}, '✨') : el('span',{class:'swatch', style:`background:${c}`});
   draw();
   show(el('div',{class:'screen'},
     el('div',{class:'topbar'}, el('div'), el('h1',{class:'title'}, `Make your hero, ${kidName()}!`), el('div')),
-    el('div',{class:'hero-create'}, el('div',{class:'card center'}, prev, el('p',{class:'muted'}, 'Your buddy will be your companion on every quest!')),
+    el('div',{class:'hero-create'}, el('div',{class:'card center'}, prev, el('p',{class:'muted'}, 'Tap a color and watch your hero change! ✨ = the original look.')),
       el('div',{class:'card grow'},
-        row('Skin', SKIN_TONES, v => el('span',{class:'swatch', style:`background:${v}`}), 'skin'),
-        row('Hair style', Object.keys(HAIR_STYLES), v => HAIR_STYLES[v], 'hairStyle'),
-        row('Hair color', HAIR_COLORS, v => el('span',{class:'swatch', style:`background:${v}`}), 'hairColor'),
-        row('Weapon', isDev() ? ['wizard','staff','sword','laser'] : ['sword','staff','laser'], v => ({ sword:'⚔️ Sword', staff:'🪄 Magic Staff', laser:'✨ Laser Sword', wizard:'🌟 Star Staff' })[v], 'weapon'),
-        row('Eyes', EYE_COLORS, v => el('span',{class:'hc-swatch', style:`background:radial-gradient(circle at 35% 30%, #fff 0 18%, ${v} 22%)`}), 'eyes'),
-        isDev() ? row('Beard', [true,false], v => v ? '🧔 Wizard beard' : '🙂 No beard', 'beard') : null,
-        styleOf(kid) === 'girl' ? row('Outfit', ['dress','pants'], v => v === 'dress' ? '👗 Dress' : '👖 Pants', 'outfit') : null,
-        styleOf(kid) === 'girl' ? row('Hair bow', [true,false], v => v ? '🎀 Bow' : 'No bow', 'bow') : null,
-        el('button',{class:'btn big', style:'margin-top:16px', onclick:()=>{ K.hero = h; heroState(); save(); confetti(70); beep('level'); say('Your hero is ready for adventure!'); (after || screenHome)(); }},'✅ This is me!')))));
+        row('Skin', 'skin', [null].concat(SKIN_TONES), sw),
+        row('Hair color', 'hair', [null].concat(HAIR_COLORS), sw),
+        row('Eyes', 'eyes', [null].concat(EYE_COLORS), c => c === null ? el('span',{class:'hc-orig'}, '✨') : el('span',{class:'hc-swatch', style:`background:radial-gradient(circle at 35% 30%, #fff 0 18%, ${c} 22%)`})),
+        row('Freckles', 'freckles', [null, true], v => v ? '✨ Freckles' : 'No freckles'),
+        el('button',{class:'btn big', style:'margin-top:16px', onclick:()=>{ K.hero = Object.assign(K.hero || {}, { paintTint: Object.assign({}, t) }); heroState(); save(); confetti(70); beep('level'); say('Your hero is ready for adventure!'); (after || screenHome)(); }},'✅ This is me!'),
+        el('details',{class:'paint-more'}, el('summary',{}, 'Grown-ups: use your own painting instead'), paintedHeroCard({}, draw))))));
 }
 
 /* ---------- loot ---------- */
@@ -5561,7 +5689,7 @@ function screenArmory(){
     grid.append(el('button',{class:'armory-item' + (owned ? '' : ' locked') + (on ? ' on' : ''), style:`--gem:${S.gem};--prim:${S.prim}`, onclick:()=>{
         if (!owned){ say(`${S.name} ${SLOT_LABEL[armorySlot]}. ${where} to get it!`); return; }
         G.eq[armorySlot] = S.id; if (armorySlot === 'weapon'){ K.wpn = null; wandOff(); } save(); beep('tap'); screenArmory(); }},
-      el('div',{class:'ai-pic', html: owned ? heroSVG(84, Object.assign({ eq: Object.assign({}, G.eq, { [armorySlot]: S.id }) }, armorySlot === 'weapon' ? { wpn:null, wiz:Object.assign({}, K.wiz || {}, { wandOn:false }) } : {})) : ''}, owned ? null : '🔒'),
+      el('div',{class:'ai-pic' + (gearArtFor(S.id, armorySlot) ? ' painted' : ''), html: gearArtFor(S.id, armorySlot) ? `<img src="${gearArtFor(S.id, armorySlot)}" alt="">` + (gearShieldFor(S.id, armorySlot) ? `<img class="gear-shield" src="${gearShieldFor(S.id, armorySlot)}" alt="">` : '') : owned ? heroSVG(84, Object.assign({ eq: Object.assign({}, G.eq, { [armorySlot]: S.id }) }, armorySlot === 'weapon' ? { wpn:null, wiz:Object.assign({}, K.wiz || {}, { wandOn:false }) } : {})) : ''}, owned || gearArtFor(S.id, armorySlot) ? null : '🔒'),
       el('div',{class:'ai-name'}, S.name), el('div',{class:'ai-sub'}, owned ? (on ? '✓ Wearing' : 'Tap to wear') : where)));
   });
   const sets = el('div',{class:'set-list'}, ...armorySets().filter(S => S.tier).map(S => {
@@ -5849,7 +5977,7 @@ const MOUNT_DRAW = {
 };
 const MOUNTS = [
   // id, name, rarity, body, colors, blurb
-  ['puffowl',   'Puffwing Owl',        'common',    'bird',   { body:'#d6c4a8', belly:'#f5ecd9', wing:'#b8996c', wing2:'#8f744e', line:'#7a5f3d', crest:'#b8996c', beak:'#f59e0b', leg:'#f59e0b', eye:'#7c4a24', saddle:'#ef4444', trim:'#fde68a' }, 'A sleepy, cozy first friend.'],
+  ['puffowl',   'Emerald Griffin',        'common',    'bird',   { body:'#d6c4a8', belly:'#f5ecd9', wing:'#b8996c', wing2:'#8f744e', line:'#7a5f3d', crest:'#b8996c', beak:'#f59e0b', leg:'#f59e0b', eye:'#7c4a24', saddle:'#ef4444', trim:'#fde68a' }, 'A loyal first friend with emerald wings.'],
   ['buzzwing',  'Buzzwing Bee',        'uncommon',  'bug',    { bee:true, body:'#facc15', body2:'#3b2a35', wing:'#e0f2fe', wing2:'#bae6fd', eye:'#1e293b', tip:'#facc15', saddle:'#7c3aed', trim:'#fde68a' }, 'Fast, fuzzy, and always humming.'],
   ['sunroc',    'Sunfeather Roc',      'rare',      'bird',   { body:'#f97316', belly:'#fed7aa', wing:'#fde68a', wing2:'#f97316', line:'#9a3412', pattern:'#1f2937', crest:'#fde68a', beak:'#facc15', leg:'#1f2937', claw:'#facc15', eye:'#7c2d12', saddle:'#14532d', trim:'#fde68a' }, 'Its wings glow like a sunset.'],
   ['gloomwing', 'Gloomwing Moth',      'rare',      'bug',    { body:'#9d174d', body2:'#831843', wing:'#be185d', wing2:'#831843', spot:'#4ade80', eye:'#4ade80', glowEye:true, tip:'#4ade80', fangs:true, saddle:'#1f2937', trim:'#4ade80' }, 'Spooky looking, very gentle.'],
@@ -5863,14 +5991,28 @@ const MOUNTS = [
 const MOUNT_BY_ID = Object.fromEntries(MOUNTS.map(m => [m.id, m]));
 const MOUNT_DROP = { gold:{ p:.05, r:['uncommon','rare'] }, cosmic:{ p:.15, r:['rare','legendary','mythic'], w:[45,42,13] } };
 function mountState(){ K.mounts = K.mounts || {}; if (!K.mounts.puffowl) K.mounts.puffowl = 1; return K.mounts; }
+/* painted mounts (Gemini art, cleaned by Claude): art/mounts/<id>.png. seat = where the rider's hips go, as a fraction of the 320x260 box. */
+const MOUNT_ART = { puffowl:{ seat:[.60,.45], rider:122 }, buzzwing:{ seat:[.50,.39], rider:112 }, sunroc:{ seat:[.54,.52], rider:122 }, gloomwing:{ seat:[.55,.60], rider:122 }, stormcrow:{ seat:[.56,.45], rider:122 }, phoenix:{ seat:[.53,.45], rider:122 }, frostmane:{ seat:[.54,.46], rider:122 } };
 function mountSVG(id, size = 200, withRider = true, flap = true){
   const M = MOUNT_BY_ID[id]; if (!M) return '';
+  const pimgHero = withRider && !!avatarImgFor();
+  if (MOUNT_ART[id]){
+    const A = MOUNT_ART[id], sx = A.seat[0] * 320, sy = A.seat[1] * 260;
+    let rider = '';
+    if (withRider){ const hw = A.rider || 112, hh = hw * 1.25, cid = 'rc' + (++heroSeq), wst = pimgHero ? .47 : HERO_WAIST, clp = pimgHero ? .16 : HERO_CLIP;
+      rider = `<clipPath id="${cid}"><rect x="0" y="0" width="320" height="${sy + hh*clp}"/></clipPath><g clip-path="url(#${cid})">` + heroSVG(hw).replace('<svg ', `<svg x="${sx - hw/2}" y="${sy - hh*wst}" `) + '</g>'; }
+    const pic = `<image href="art/mounts/${id}.png" x="0" y="0" width="320" height="260" preserveAspectRatio="xMidYMid meet"/>`;
+    return `<svg viewBox="0 0 320 260" width="${size}" height="${size*260/320}" xmlns="http://www.w3.org/2000/svg" class="mount-svg painted${flap ? ' flap' : ''} m-${M.r}" style="overflow:visible"><g class="m-bob">${pic}${rider}${A.front ? `<image href="art/mounts/${id}_front.png" x="0" y="0" width="320" height="260" preserveAspectRatio="xMidYMid meet"/>` : ''}</g></svg>`;
+  }
+  // a painted hero on a flat cartoon mount clashes: until this mount is painted, show the hero on their own
+  if (pimgHero) return heroSVG(Math.round(size * .5));
   const D = MOUNT_DRAW[M.body](M.o), [sx, sy] = D.seat;
   let rider = '';
   if (withRider){ const hw = HERO_CLASSIC ? 90 : 112, hh = hw * 1.25, cid = 'rc' + (++heroSeq); // the hero's waist is ~68% down the hero picture
     // sitting: hide the hero's legs below the hips; the saddle and a boot in the stirrup go on top
-    rider = `<clipPath id="${cid}"><rect x="0" y="0" width="320" height="${sy + hh*HERO_CLIP}"/></clipPath><g clip-path="url(#${cid})">` +
-      heroSVG(hw).replace('<svg ', `<svg x="${sx - hw/2}" y="${sy - hh*HERO_WAIST}" `) + '</g>'; }
+    const pimg = !!avatarImgFor(), wst = pimg ? .47 : HERO_WAIST, clp = pimg ? .16 : HERO_CLIP;
+    rider = `<clipPath id="${cid}"><rect x="0" y="0" width="320" height="${sy + hh*clp}"/></clipPath><g clip-path="url(#${cid})">` +
+      heroSVG(hw).replace('<svg ', `<svg x="${sx - hw/2}" y="${sy - hh*wst}" `) + '</g>'; }
   return `<svg viewBox="0 0 320 260" width="${size}" height="${size*260/320}" xmlns="http://www.w3.org/2000/svg" class="mount-svg${flap ? ' flap' : ''} m-${M.r}">
     <defs><filter id="hglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
     <g class="m-bob">${D.back}${rider}${D.front}</g></svg>`;
@@ -6333,6 +6475,7 @@ function worldStop(){ try { WORLD.sub && WORLD.sub(); } catch(e){} WORLD.sub = n
    to wave or high-five. With cloud save on (the Claude link), each kid's spot and waves are shared
    live through the docs rq/plaza_son and rq/plaza_daughter. On the GitHub site this works on one iPad
    only, so a wave left for someone not in town waits as a note until they come back. */
+const PZ_HERO = 150;   // hero size in Town Square; painted buildings are ~400px wide, so heroes were too small at 96
 const PZ_W = 1600, PZ_H = 1120, PZ_C = { x:800, y:620 };
 const PZ_EMOTES = [['👋','Wave'],['✋','High five'],['💃','Dance'],['🎉','Cheer'],['❤️','Hug'],['😂','Silly']];
 const PZ_BUILDINGS = [
@@ -6467,6 +6610,7 @@ function pzSceneSVG(){
     <radialGradient id="pzSun" cx="12%" cy="0%" r="90%"><stop offset="0" stop-color="#fff6c8" stop-opacity=".55"/><stop offset=".5" stop-color="#fff6c8" stop-opacity="0"/></radialGradient>
     <pattern id="pzCobble" width="28" height="22" patternUnits="userSpaceOnUse"><rect width="28" height="22" fill="#efe4cf"/><path d="M0 11 h28 M14 0 v11 M0 0 v0 M7 11 v11 M21 11 v11" stroke="#d6c6a6" stroke-width="2"/></pattern></defs>
     <rect width="${PZ_W}" height="${PZ_H}" fill="url(#pzGrass)"/>`;
+  if (hasArt('plaza', 'ground')) return pzPaintedScene(s, C);
   for (let i = 0; i < 26; i++) s += `<ellipse cx="${R()*PZ_W}" cy="${R()*PZ_H}" rx="${60 + R()*90}" ry="${26 + R()*30}" fill="#c8f59a" opacity="${.12 + R()*.12}"/>`;
   for (let i = 0; i < 260; i++) s += `<path d="M${R()*PZ_W} ${R()*PZ_H} l3 -9 l3 9" stroke="#3f8a33" stroke-width="2" fill="none" opacity=".5"/>`;
   for (let i = 0; i < 70; i++){ const x = R()*PZ_W, y = R()*PZ_H, c = ['#fff','#ffd6e7','#fff3a3'][i % 3]; s += `<circle cx="${x}" cy="${y}" r="2.6" fill="${c}"/><circle cx="${x+5}" cy="${y+2}" r="2.2" fill="${c}"/><circle cx="${x+2}" cy="${y-4}" r="2" fill="${c}"/>`; }
@@ -6537,12 +6681,12 @@ function screenTownSquare(){
   const zz = zoomable({ view, content: world, W: PZ_W, H: PZ_H, start: PZ.z || (innerWidth < 600 ? .7 : 1), max: 2.2, onZoom: z => { PZ.z = z; } });
   const frame = zz.frame; frame.classList.add('plaza-frame'); frame.append(todBadge('Storybrook'));
   const actor = (node, name, cls) => el('div',{class:'plaza-actor ' + (cls || '')}, el('div',{class:'pz-tag'}, name), node);
-  const me = actor(pzHeroFor(kid, 96), kidName(), 'me' + (isDev() ? ' wizard' : ''));
+  const me = actor(pzHeroFor(kid, PZ_HERO), kidName(), 'me' + (isDev() ? ' wizard' : ''));
   world.append(me);
   world.append(todLayer('plaza', [[640,554,60],[960,554,60],[800,364,60],[800,754,60],[470,454,60],[1130,454,60],[470,794,60],[1130,794,60],[PZ_C.x, PZ_C.y - 100, 90]]
     .concat(PZ_BUILDINGS.map(b => [b.x, b.y - 40, 110]))
     .concat([[90,260],[1510,260],[110,1090],[1490,1090],[300,1110],[1300,1110],[560,180],[1040,180]].map(([x, y]) => [x, y - 30, 70]))));
-  const put = (n, x, y, w = 96) => { n.style.left = (x - w/2) + 'px'; n.style.top = (y - w*1.25 - 30) + 'px'; n.style.zIndex = Math.round(y); };
+  const put = (n, x, y, w = PZ_HERO) => { n.style.left = (x - w/2) + 'px'; n.style.top = (y - w*1.25 - 30) + 'px'; n.style.zIndex = Math.round(y); };
   const bubble = (n, text, big) => { n.querySelectorAll('.pz-bubble').forEach(b => b.remove()); const b = el('div',{class:'pz-bubble' + (big ? ' big' : '')}, text); n.append(b); setTimeout(() => b.remove(), 2600); };
   const camera = (x, y, smooth = true) => view.scrollTo({ left: x*zz.z - view.clientWidth/2, top: y*zz.z - view.clientHeight/2, behavior: smooth ? 'smooth' : 'auto' });
   K.plazaSeenBy = K.plazaSeenBy || {};
@@ -6555,7 +6699,7 @@ function screenTownSquare(){
   const P = {};
   const addOther = (k, i) => {
     if (P[k]) return;
-    const n = actor(pzHeroFor(k, 96), kidName(k), 'sib' + (k === 'dev' ? ' wizard' : '') + (isWorldId(k) ? ' worlder' : ''));
+    const n = actor(pzHeroFor(k, PZ_HERO), kidName(k), 'sib' + (k === 'dev' ? ' wizard' : '') + (isWorldId(k) ? ' worlder' : ''));
     P[k] = { k, n, pos: Object.assign({}, spotFor(k, i)), seenEmote: 0 };
     world.append(n);
     n.onclick = e => { e.stopPropagation(); beep('tap'); tapOther(P[k]); };
@@ -6637,7 +6781,7 @@ function screenTownSquare(){
 
   // townsfolk
   PZ_NPCS.filter(n => !n.hidden).forEach(n => {
-    const node = el('div',{class:'pz-npc', style:`left:${n.x-36}px;top:${n.y-90}px;z-index:${n.y}`}, el('div',{class:'pz-tag'}, n.name), el('div',{class:'pz-npc-e'}, n.e));
+    const node = el('div',{class:'pz-npc', style:`left:${n.x-(hasArt('npc', n.id) ? 60 : 36)}px;top:${n.y-(hasArt('npc', n.id) ? 150 : 90)}px;z-index:${n.y}`}, el('div',{class:'pz-tag'}, n.name), hasArt('npc', n.id) ? el('img',{class:'pz-npc-img', src: artURL('npc', n.id), alt: n.name}) : el('div',{class:'pz-npc-e'}, n.e));
     if (n.id === 'baker') node.append(el('div',{class:'pz-stall'},'🥐🧁🍪'));
     node.onclick = e => { e.stopPropagation(); beep('tap'); walkTo(n.x + 70, n.y + 10, () => n.id === 'owl' ? owl() : n.id === 'keeper' ? keeper() : baker()); };
     world.append(node);
@@ -8298,7 +8442,7 @@ function truesightTap(p, i){
   return true;
 }
 
-if (navigator.webdriver) window.__sb = { expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, getDB: () => DB, GEAR_SETS, GEAR_SLOTS };
+if (navigator.webdriver) window.__sb = { expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, fairOpts: (...a) => fairOpts(...a), quizPool: (...a) => quizPool(...a), finishQuiz: (...a) => finishQuiz(...a), QTYPE: q => QTYPE(q), getDB: () => DB, GEAR_SETS, GEAR_SLOTS };
 mountEpicBg(); setInterval(mountEpicBg, 10 * 60 * 1000);
 if (navigator.webdriver) window.__landing = () => screenFamilyLogin();
 /* ======================= STORYBORNE 2.0: adaptive curriculum UI =======================
@@ -8855,8 +8999,8 @@ function screenQuestPath(msg){
   if (!heroAt) heroAt = qpTrail(legend ? ts[5] : ts[0]);
   // the full hero stands on the path, just behind the glowing stop
   const hw = 112, hh = hw * 1.25;
-  svg += `<g class="qp-hero">${heroSVG(hw).replace('<svg ', `<svg x="${(heroAt[0] - 70 - hw / 2).toFixed(0)}" y="${(heroAt[1] + 8 - hh).toFixed(0)}" `)}</g>`;
-  if (!G && K.avatar && K.avatar.base) svg += `<g>${avatarSVG(K.avatar, 70).replace('<svg ', `<svg x="${(heroAt[0] - 160).toFixed(0)}" y="${(heroAt[1] - 52).toFixed(0)}" `)}</g>`;
+  svg += `<g class="qp-hero">${heroSVG(hw).replace('<svg ', `<svg x="${(heroAt[0] - hw / 2).toFixed(0)}" y="${(heroAt[1] - 6 - hh).toFixed(0)}" `)}</g>`;   // the hero stands on the glowing stop
+  if (!G && K.avatar && K.avatar.base) svg += `<g>${avatarSVG(K.avatar, 62).replace('<svg ', `<svg x="${(heroAt[0] + 34).toFixed(0)}" y="${(heroAt[1] - 74).toFixed(0)}" `)}</g>`;
   svg += '</svg>';
   const stage = el('div',{class:'qp-stage', html: svg});
   stage.addEventListener('click', e => { const g = e.target.closest('.qp-node'); if (!g) return; const n = stops[+g.dataset.i];
@@ -8986,6 +9130,324 @@ screenParent = function(which){
     anchor ? anchor.after(card) : scr.prepend(card);
   } catch(e){ console.warn('stories read', e); }
 };
+/* ---------- spelling tracker: every missed word comes back on another day until it's spelled right on 2 different days ---------- */
+function spellLog(word, ok, typed, src){
+  word = String(word || '').toLowerCase(); if (!/^[a-z]+$/.test(word) || !K) return;
+  K.spellMiss = K.spellMiss || {};
+  const t = todayStr(), r = K.spellMiss[word];
+  if (!ok){
+    const e = r || (K.spellMiss[word] = { miss:0, right:0, streak:0, first:t, typed:[], mastered:null });
+    e.miss++; e.streak = 0; e.mastered = null; e.last = t; e.lastMiss = t; e.src = src || e.src;
+    const g = String(typed || '').toLowerCase().trim();
+    if (g && g !== word) e.typed = [g].concat((e.typed || []).filter(x => x !== g)).slice(0, 4);
+  } else if (r){
+    r.right++; r.last = t;
+    if (r.lastRight !== t && r.lastMiss !== t){ r.streak++; r.lastRight = t; }   // one "right day" per day, and not on a day it was missed
+    if (r.streak >= 2 && !r.mastered) r.mastered = t;
+  }
+  save();
+}
+// missed words waiting to come back: not mastered, not already practiced today
+function spellDue(){
+  const t = todayStr();
+  return Object.entries(K.spellMiss || {}).filter(([, r]) => !r.mastered && r.last !== t).sort((a, b) => b[1].miss - a[1].miss || (a[1].last < b[1].last ? -1 : 1)).map(([w]) => w);
+}
+const spellIsComeback = w => { const r = (K.spellMiss || {})[w]; return !!(r && !r.mastered); };
+// grown-ups: the spelling tracker
+const _screenParentSP = screenParent;
+screenParent = function(which){
+  _screenParentSP(which);
+  try {
+    const scr = document.querySelector('#app .screen'); if (!scr) return;
+    const w = CLOUD.editing || which || playerIds(false)[0], k = DB.kids[w]; if (!k) return;
+    const all = Object.entries(k.spellMiss || {});
+    const practicing = all.filter(([, r]) => !r.mastered).sort((a, b) => b[1].miss - a[1].miss), mastered = all.filter(([, r]) => r.mastered).sort((a, b) => (b[1].mastered > a[1].mastered ? 1 : -1));
+    const d = s => s ? new Date(s + 'T12:00').toLocaleDateString(undefined, { month:'short', day:'numeric' }) : '–';
+    const tbl = el('table',{}, el('tr',{}, ...['Word','Missed','They wrote','Right days (need 2)','First missed','Last tried'].map(h => el('th',{}, h))),
+      ...practicing.map(([word, r]) => el('tr',{}, el('td',{}, el('b',{}, word)), el('td',{}, r.miss + '×'), el('td',{}, (r.typed || []).join(', ') || '–'), el('td',{}, (r.streak || 0) + ' / 2'), el('td',{}, d(r.first)), el('td',{}, d(r.last)))));
+    const copy = el('button',{class:'btn small', onclick:async ev => { const txt = practicing.map(([word]) => word).join('\n'); try { await navigator.clipboard.writeText(txt); ev.currentTarget.textContent = '✅ Copied'; } catch(e){ prompt('Practice list:', practicing.map(([word]) => word).join(', ')); } }}, '📋 Copy practice list');
+    const card = el('details',{class:'card spell-tracker', open: practicing.length ? true : null},
+      el('summary',{}, el('b',{}, `✏️ Spelling tracker: ${practicing.length} to practice · ${mastered.length} mastered`)),
+      el('p',{class:'muted'}, 'Every word spelled wrong is saved here and comes back on a later day. A word is mastered after it is spelled right on 2 different days. "They wrote" shows their last wrong tries, so you can see the pattern (e.g. a missing silent e).'),
+      practicing.length ? el('div',{}, tbl, el('div',{class:'row', style:'margin-top:8px'}, copy)) : el('p',{}, '🎉 No spelling words to practice right now.'),
+      mastered.length ? el('p',{class:'muted', style:'margin-top:10px'}, '✅ Mastered: ' + mastered.map(([word, r]) => `${word} (${d(r.mastered)})`).join(', ')) : null);
+    const anchor = scr.querySelector('.stories-read') || scr.querySelector('.v2-parent-cta') || scr.querySelector('.tabs');
+    anchor ? anchor.after(card) : scr.prepend(card);
+  } catch(e){ console.warn('spell tracker', e); }
+};
+// grown-ups: where the game thinks this reader is, and how it has adjusted
+const _screenParentCAL = screenParent;
+screenParent = function(which){
+  _screenParentCAL(which);
+  try {
+    const scr = document.querySelector('#app .screen'); if (!scr) return;
+    const w = CLOUD.editing || which || playerIds(false)[0], k = DB.kids[w], P = playerOf(w); if (!k || !P) return;
+    const tr = trackOf(w), word = tr === 'daughter' ? 'Rank' : 'Level', Tt = TRACKS[tr];
+    const keepK = K, keepKid = kid, keepTK = TK, keepT = T; let fit = 0;
+    try { K = k; kid = w; TK = tr; T = Tt; fit = storyFit(); } finally { K = keepK; kid = keepKid; TK = keepTK; T = keepT; }
+    const rec = (k.sessions || []).filter(s => s.kind === 'story' && s.mode === 'normal' && s.quiz).slice(0, 6);
+    const avg = rec.length ? Math.round(rec.reduce((t, s) => { const [c, n] = s.quiz.split('/').map(Number); return t + c / n; }, 0) / rec.length * 100) : null;
+    const q = quizLevelOf(w), qn = { standard:'🙂 Standard', challenge:'🧠 Challenge', expert:'🔥 Expert' }[q] || q;
+    const R = READS_AT[P.readsAt], G = GRADES.find(g => g[0] === P.grade);
+    const card = el('div',{class:'card calib-card'},
+      el('b',{}, '🎯 Reading level & calibration'),
+      el('p',{}, `Now: ${word} ${k.level} of ${Tt.levels.length} (${Tt.levels[k.level - 1].title})` + (k.startLevel ? ` · started at ${word} ${k.startLevel}` : '') + (G || R ? ` · set up as ${G ? G[1] + ' grade' : ''}${G && R ? ', ' : ''}${R ? R.name.toLowerCase() : ''}` : '')),
+      el('p',{}, `Stories right now: ${fit > 0 ? '⬆️ stretch (reading well, so some stories come from the next level)' : fit < 0 ? '🔁 review (questions were hard lately, so some easier stories)' : '🎯 on level'} · Questions: ${qn}${k.quizAuto ? ' (auto-adjusted)' : ''}` + (avg != null ? ` · last ${rec.length} story quizzes: ${avg}% right` : '')),
+      el('p',{class:'muted'}, 'How it adapts: 3 great reads (4–5 of 5 right) unlock the boss and the next level. Story picks lean up or down a level from the last 4 reads. Question difficulty steps up after 6 quizzes at 90%+ and down below 55% (at most every 3 days). Change the starting level under ✏️ Edit.'),
+      (k.quizLog || []).length ? el('p',{class:'muted'}, 'Question changes: ' + k.quizLog.slice(0, 5).map(l => `${new Date(l.at).toLocaleDateString(undefined, { month:'short', day:'numeric' })} ${l.from}→${l.to} (${l.avg}%)`).join(' · ')) : null);
+    const anchor = scr.querySelector('.v2-parent-cta') || scr.querySelector('.tabs');
+    anchor ? anchor.after(card) : scr.prepend(card);
+  } catch(e){ console.warn('calib', e); }
+};
+/* ================= FAIR QUIZZES (curriculum audit, Phase 1) =================
+   Every quiz: wrong answers as long and as believable as the right one, plus one author's-craft
+   question and the story's big-idea question when it has one. Each answer is logged by skill type. */
+const QTYPE = q => { q = String(q).toLowerCase();
+  if (/mostly about|main idea|best title|summar|lesson|moral|message|author want|theme|big idea/.test(q)) return 'bigidea';
+  if (/mean here|most nearly mean|who is telling|who tells|author (use|include|start|begin|chose)|why does the (story|chapter) (start|begin|end)/.test(q)) return 'craft';
+  if (/what does .{1,30} mean/.test(q)) return 'craft';
+  if (/prove|which sentence|evidence|how do you know|exactly what the story says/.test(q)) return 'evidence';
+  if (/most likely|probably|predict|infer|can you tell|hint|will happen|why do you think|what kind of|not happen/.test(q)) return 'infer';
+  if (/^why|because|cause|what made|feel|felt|change/.test(q)) return 'why';
+  if (/first|last|story order|before|after/.test(q)) return 'sequence';
+  return 'detail'; };
+const QTYPE_NAME = { detail:'Key details', why:'Why / cause & effect', infer:'Inference', craft:"Author's craft (words, narrator)", bigidea:'Big idea / theme', evidence:'Proving it with the text', sequence:'Order of events' };
+function skillLog(type, ok){
+  try { K.skillStats = K.skillStats || {}; const r = K.skillStats[type] || (K.skillStats[type] = { r:0, t:0, last:[] });
+    r.t++; if (ok) r.r++; r.last = [ok ? 1 : 0].concat(r.last || []).slice(0, 20); } catch(e){}
+}
+function fairOpts(item, story, pool){
+  if (!item || item.order || !item.opts) return item;
+  const R = item.opts.find(o => o.right); if (!R) return item;
+  const len = R.t.length, wrong = item.opts.filter(o => !o.right); if (!wrong.length) return item;
+  const maxW = Math.max(...wrong.map(o => o.t.length)), minW = Math.min(...wrong.map(o => o.t.length));
+  if (len <= maxW * 1.1 && minW >= len * .5) return item;                    // already fair
+  const have = new Set(item.opts.map(o => o.t.toLowerCase()));
+  const fits = t => { const l = String(t).toLowerCase(); if (have.has(l)) return false; return t.length >= len * .75 && t.length <= len * 1.3; };
+  const same = x => !story.series || !x.story.series || x.story.series === story.series;
+  const byKind = (pool && pool.byKind) || {}, kind = byKind[qKind(item.q)] || [];
+  const emo = t => /^\p{Extended_Pictographic}/u.test(String(t).trim());
+  const fits2 = t => fits(t) && emo(t) === emo(R.t);                      // emoji answers only swap with emoji answers
+  const big = QTYPE(item.q) === 'bigidea', themeKind = k => /lesson|author|message|moral|big|theme|mostly|main/.test(k);
+  // a big-idea question never borrows another story's lesson: two morals could both sound right
+  const others = big ? [] : shuffle(kind.filter(x => x.story !== story && same(x)).map(x => x.ans)).filter(fits2);
+  const anyKind = others.length >= 3 ? [] : shuffle(Object.entries(byKind).filter(([k]) => !themeKind(k)).flatMap(([, v]) => v).filter(x => x.story !== story && same(x)).map(x => x.ans)).filter(fits2);
+  const own = big ? [] : shuffle((story.qs || []).map(([, o, a]) => o[a]).filter(t => t !== R.t)).filter(fits2).slice(0, 1);  // a true detail that doesn't answer this question
+  const cands = [...new Set(others.concat(anyKind, own))].filter(t => { const l = t.toLowerCase(); if (have.has(l)) return false; have.add(l); return true; });
+  if (!cands.length) return item;
+  const keep = wrong.slice().sort((a, b) => b.t.length - a.t.length);    // keep the story's own best (longest) wrong answer
+  const swap = Math.min(cands.length, Math.max(1, keep.length - 1));
+  const newWrong = keep.slice(0, keep.length - swap).concat(cands.slice(0, swap).map(t => ({ t, right:false })));
+  return Object.assign({}, item, { opts: shuffle([R].concat(newWrong)) });
+}
+// author's craft: a word in context, or who is telling the story
+function craftQ(story){
+  const text = story.text || '', sents = storySentences(text).filter(x => !/["“”]/.test(x));
+  const defs = Object.entries(GLOSSARY);
+  for (const sn of shuffle(sents)){
+    const w = sn.split(/\s+/).map(x => x.replace(/[^\w'-]/g, '')).find(x => x.length > 4 && defFor(x));
+    if (!w) continue;
+    const d = defFor(w), wrong = shuffle(defs.map(x => x[1]).filter(x => x !== d && Math.abs(x.length - d.length) < d.length * .5)).slice(0, 3);
+    if (wrong.length < 3) continue;
+    return { q:`“${tidy(sn)}”\nAs it is used here, “${w}” most nearly means…`, opts: shuffle([d].concat(wrong).map(t => ({ t, right: t === d }))) };
+  }
+  const narr = text.replace(/["“][^"”]*["”]/g, ' '), first = (narr.match(/\b(I|my|me)\b/g) || []).length > 4;
+  const right = first ? 'A character in the story, telling it as “I”' : 'A narrator who is not one of the characters';
+  const wrong = first ? ['A narrator who is not one of the characters', 'A news reporter writing about the events', 'Two characters taking turns writing letters']
+                      : ['A character in the story, telling it as “I”', 'A news reporter writing about the events', 'Two characters taking turns writing letters'];
+  return { q:'Who is telling this story?', opts: shuffle([right].concat(wrong).map(t => ({ t, right: t === right }))) };
+}
+function finishQuiz(qs, story){
+  if (!qs || !qs.length || !story) return qs;
+  const pool = (() => { try { return quizPool(TK); } catch(e){ return null; } })();
+  let out = qs.map(x => fairOpts(x, story, pool));
+  if (run && run.opts && run.opts.boss) return out;                  // boss questions stay as written (only made fair)
+  const types = out.map(x => QTYPE(x.q));
+  const swapAt = () => { let i = types.lastIndexOf('detail'); if (i < 0) i = types.lastIndexOf('sequence'); if (i < 0) i = out.length - 1; return i; };
+  // the story's big-idea question, if it has one and the quiz left it out
+  if (!types.includes('bigidea')){
+    const big = (story.qs || []).find(([q]) => QTYPE(q) === 'bigidea');
+    if (big){ const [q, o, a] = big, i = swapAt(); out[i] = fairOpts({ q, opts: shuffle(o.map((t, k) => ({ t, right: k === a }))) }, story, pool); types[i] = 'bigidea'; }
+  }
+  if (!types.includes('craft')){ const c = craftQ(story); if (c){ const i = swapAt(); out[i] = c; types[i] = 'craft'; } }
+  return out;
+}
+// grown-ups: which kinds of thinking are strong or weak
+const _screenParentSK = screenParent;
+screenParent = function(which){
+  _screenParentSK(which);
+  try {
+    const scr = document.querySelector('#app .screen'); if (!scr) return;
+    const w = CLOUD.editing || which || playerIds(false)[0], k = DB.kids[w]; if (!k) return;
+    const st = k.skillStats || {};
+    const rows = Object.keys(QTYPE_NAME).filter(t => st[t] && st[t].t).map(t => { const r = st[t], rec = r.last || [], pr = rec.length ? Math.round(rec.reduce((a, b) => a + b, 0) / rec.length * 100) : 0;
+      return [t, r, pr]; }).sort((a, b) => a[2] - b[2]);
+    const card = el('details',{class:'card skill-card', open: rows.length ? true : null},
+      el('summary',{}, el('b',{}, '🧠 Thinking skills (SAT/ACT building blocks)')),
+      el('p',{class:'muted'}, 'Every quiz answer is sorted by the kind of thinking it takes. Weakest first: that is the one to practice together ("How do you know?", "Why did the author say it that way?").'),
+      rows.length ? el('table',{}, el('tr',{}, ...['Skill','Last 20 right','All time'].map(h => el('th',{}, h))),
+        ...rows.map(([t, r, pr]) => el('tr',{}, el('td',{}, QTYPE_NAME[t]), el('td',{}, el('b',{style:`color:${pr >= 80 ? '#15803d' : pr >= 60 ? '#b45309' : '#b91c1c'}`}, pr + '%')), el('td',{}, `${Math.round(r.r)} of ${r.t}`))))
+        : el('p',{}, 'Shows up after the next few quizzes.'));
+    const anchor = scr.querySelector('.calib-card') || scr.querySelector('.v2-parent-cta') || scr.querySelector('.tabs');
+    anchor ? anchor.after(card) : scr.prepend(card);
+  } catch(e){ console.warn('skills card', e); }
+};
+
+/* ===== Painted art (Gemini pictures cleaned by Claude). One manifest per kind; ids not listed keep their drawn art. =====
+   art/world/<id>.png   My World items (buildings, nature, rides, animals, holiday, legendary)
+   art/plaza/<id>.png   Town Square buildings (townhall, library, shop, armory, heroes, trophy, roost, portal)
+   art/weapons/<id>.png legendary weapons   art/pets/<id>.png companions   art/mounts/<id>.png (see MOUNT_ART) */
+const ART = { world:[], plaza:['ground','townhall','library','shop','armory','heroes','trophy','roost','hall','portal','wands'], weapons:[], pets:['p_dragon','p_kitty','p_puppy','p_bunny','p_unicorn','p_owl','p_panda','p_robot','p_phoenix'], npc:['owl','baker','keeper'] };
+const artURL = (kind, id) => `art/${kind}/${id}.png`;
+const hasArt = (kind, id) => (ART[kind] || []).includes(id);
+ART.world.forEach(id => { TOWN_SVG[id] = `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" class="painted-art"><image href="${artURL('world', id)}" x="0" y="0" width="200" height="200" preserveAspectRatio="xMidYMax meet"/></svg>`; });
+ART.pets.forEach(id => { PET[id] = () => `<g class="petbob"><ellipse cx="34" cy="214" rx="18" ry="4" fill="#000" opacity=".15"/><image href="${artURL('pets', id)}" x="6" y="160" width="56" height="56" preserveAspectRatio="xMidYMax meet"/></g>`; });
+{ const lwBase = legendWeaponSVG;
+  legendWeaponSVG = function(id){
+    if (!hasArt('weapons', id)) return lwBase(id);
+    return `<g class="lw painted"><image href="${artURL('weapons', id)}" x="100" y="10" width="120" height="230" preserveAspectRatio="xMidYMid meet"/></g>`;
+  }; }
+{ const pzBase = pzBuildingSVG;
+  pzBuildingSVG = function(b){
+    if (!hasArt('plaza', b.id)) return pzBase(b);
+    const W = Math.min(b.w * 1.75, 400), H = W, ink = '#2a2118';
+    return `<g data-b="${b.id}" class="pz-b painted"><ellipse cx="${b.x}" cy="${b.y+4}" rx="${b.w*.6}" ry="18" fill="#000" opacity=".16"/>`
+      + `<image href="${artURL('plaza', b.id)}" x="${b.x - W/2}" y="${b.y - H + 10}" width="${W}" height="${H}" preserveAspectRatio="xMidYMax meet"/>`
+      + `<rect x="${b.x-90}" y="${b.y+14}" width="180" height="34" rx="10" fill="#fff" stroke="${ink}" stroke-width="3"/><text x="${b.x}" y="${b.y+37}" text-anchor="middle" font-weight="800" font-size="18" fill="${ink}">${b.icon} ${b.name}</text></g>`;
+  }; }
+
+/* painted armor piece icons: art/gear/<set>_<slot>.png. The weapon slot shows the staff for Gia and the sword for Miles. */
+const GEAR_ALL = ['helmet','shoulders','chest','gloves','belt','pants','boots','sword','staff'];
+const GEAR_ART = Object.fromEntries(['traveler','squire','ember','frost','storm'].map(id => [id, GEAR_ALL]));
+// no staff drawn for these: jade (third sword), shadow (bow, saved as its sword icon), starforge/celestial/tempest/phoenix (shield instead)
+['jade','shadow','starforge','celestial','tempest','phoenix','glacier','dragonlord'].forEach(id => GEAR_ART[id] = GEAR_ALL.filter(s => s !== 'staff'));
+GEAR_ART.jade = GEAR_ALL.filter(s => s !== 'staff');   // Gemini drew a third sword instead of a staff; Gia shows the sword until a staff arrives
+function gearArtFor(setId, slot){
+  const have = GEAR_ART[setId]; if (!have) return null;
+  const s = slot === 'weapon' ? (heroKidKey() === 'daughter' && have.includes('staff') ? 'staff' : 'sword') : slot;
+  return have.includes(s) ? artURL('gear', `${setId}_${s}`) : null;
+}
+
+/* painted Town Square ground (art/plaza/ground.png, 1600x1120 box): replaces the drawn grass, paths, flower beds,
+   cottages and trees. The fountain is part of the painting; an invisible circle keeps it tappable. */
+function pzPaintedScene(s, C){
+  s += `<image href="art/plaza/ground.jpg" x="0" y="0" width="${PZ_W}" height="${PZ_H}" preserveAspectRatio="xMidYMid slice"/>`;
+  s += `<g data-b="well" class="pz-b"><circle cx="${C.x}" cy="${C.y}" r="90" fill="#fff" opacity="0"/></g>`;
+  PZ_BUILDINGS.forEach(b => s += pzBuildingSVG(b));
+  return s + '</svg>';
+}
+
+/* painted reading buddies: reuse the painted pets where they match, own art for koala and ninja */
+function buddyArt(base){   // a function declaration so it works before this line runs (buddies draw during startup)
+  const p = { bunny:'pets/p_bunny', dragon:'pets/p_dragon', robot:'pets/p_robot', puppy:'pets/p_puppy', kitten:'pets/p_kitty', koala:'buddies/koala', ninja:'buddies/ninja' }[base];
+  return p ? `art/${p}.png` : null; }
+/* sets that came with a shield: Miles sees it next to his sword in the weapon slot */
+function gearShieldFor(setId, slot){ return slot === 'weapon' && heroKidKey() !== 'daughter' && ['starforge','celestial','tempest','phoenix','glacier','dragonlord'].includes(setId) ? artURL('gear', `${setId}_shield`) : null; }
+
+/* ===== Painted heroes for new players =====
+   Gia and Miles have hand-made paintings. Anyone else picks their look in the creator, gets a ready-made prompt for an
+   image tool, and uploads the picture here; the white background is removed on the iPad and the painting replaces the
+   drawn hero everywhere. Stored on this device only (localStorage), so it never bloats the cloud save. */
+function paintedHeroOf(kidId){ try { return localStorage.getItem('sb_paint_' + kidId); } catch(e){ return null; } }
+function colorName(hex, table){
+  const names = { '#fde3c8':'very fair', '#f5c9a0':'fair', '#e0a878':'light tan', '#c68a5a':'medium brown', '#9a6440':'brown', '#6b4428':'deep brown',
+    '#1f1b18':'black', '#5b3a21':'dark brown', '#a0612f':'auburn brown', '#e7c46a':'blonde', '#b5462a':'red', '#f472b6':'pink', '#60a5fa':'blue', '#a78bfa':'purple', '#f1f5f9':'white silver',
+    '#6b3f1f':'brown', '#2f6fd6':'blue', '#2f9e5b':'green', '#8b5cf6':'violet', '#2a2230':'dark brown' };
+  return names[hex] || 'natural';
+}
+function heroPrompt(h){
+  const girl = styleOf(kid) === 'girl';
+  const hair = { short:'short', spiky:'short spiky', long:'long flowing', ponytail:'ponytail', curly:'curly', buns:'two space-bun' }[h.hairStyle] || 'short';
+  return `Painted storybook-anime fantasy game art, soft cel shading, painterly texture, rich saturated colors, bold clean outline, kid-friendly epic fantasy RPG hero. ` +
+    `A full-body ${girl ? 'girl' : 'boy'} hero about ${girl ? '7' : '6'} years old, standing pose facing the viewer, friendly confident smile, ` +
+    `${colorName(h.skin)} skin, ${hair} ${colorName(h.hairColor)} hair, big ${colorName(h.eyes || '#6b3f1f')} eyes${h.freckles ? ', light freckles across the nose and cheeks' : ''}. ` +
+    `Wearing a simple beginner traveler outfit: plain brown tunic, cloth cloak, leather belt and boots, no armor. ${girl ? 'Holding a small book.' : 'Holding a wooden practice sword.'} ` +
+    `Whole body head to boots, centered. No text. Plain solid white background.`;
+}
+// remove the white background (flood fill from the edges), crop, shrink to 380px tall, return a PNG data URL
+function cutOutHero(file){
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      const W = img.naturalWidth, H = img.naturalHeight, c = document.createElement('canvas'); c.width = W; c.height = H;
+      const g = c.getContext('2d'); g.drawImage(img, 0, 0); const d = g.getImageData(0, 0, W, H), p = d.data;
+      const white = i => p[i] > 228 && p[i+1] > 228 && p[i+2] > 228;
+      const seen = new Uint8Array(W * H), stack = [];
+      for (let x = 0; x < W; x++){ stack.push(x, x + (H-1)*W); } for (let y = 0; y < H; y++){ stack.push(y*W, y*W + W-1); }
+      while (stack.length){ const q = stack.pop(); if (seen[q] || !white(q*4)) continue; seen[q] = 1; p[q*4+3] = 0;
+        const x = q % W; if (x > 0) stack.push(q-1); if (x < W-1) stack.push(q+1); if (q >= W) stack.push(q-W); if (q < W*(H-1)) stack.push(q+W); }
+      let x0 = W, y0 = H, x1 = 0, y1 = 0;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (p[(y*W+x)*4+3] > 20){ if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      if (x1 <= x0 || y1 <= y0) return rej(new Error('empty'));
+      g.putImageData(d, 0, 0);
+      const k = Math.min(1, 380 / (y1 - y0 + 1)), o = document.createElement('canvas'); o.width = Math.round((x1 - x0 + 1) * k); o.height = Math.round((y1 - y0 + 1) * k);
+      o.getContext('2d').drawImage(c, x0, y0, x1 - x0 + 1, y1 - y0 + 1, 0, 0, o.width, o.height);
+      res(o.toDataURL('image/png'));
+    };
+    img.onerror = () => rej(new Error('load'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+function paintedHeroCard(h, redraw){
+  const kidId = kid;
+  const has = !!paintedHeroOf(kidId), status = el('p',{class:'muted small'}, has ? '✅ Painted hero in use.' : '');
+  const file = el('input',{type:'file', accept:'image/*', style:'display:none'});
+  file.onchange = async () => {
+    const f = file.files && file.files[0]; if (!f) return; status.textContent = 'Painting in progress…';
+    try { const url = await cutOutHero(f); localStorage.setItem('sb_paint_' + kidId, url); status.textContent = '✅ Your painted hero is ready!'; if (redraw) redraw(); confetti(60); beep('level'); }
+    catch(e){ status.textContent = e && e.name === 'QuotaExceededError' ? 'That picture is too big to save here. Try a smaller one.' : 'That picture did not work. Use a picture on a plain white background.'; }
+  };
+  return el('div',{class:'card paint-card', style:'margin-top:16px'},
+    el('h3',{}, '🎨 Make the painting (grown-ups)'),
+    el('p',{class:'muted small'}, '1. Copy the prompt. 2. Paste it into an image maker (Gemini, ChatGPT or Copilot). 3. Download the picture and upload it here.'),
+    el('div',{class:'row'},
+      el('button',{class:'btn small', onclick:async ev => { const t = heroPrompt(h); try { await navigator.clipboard.writeText(t); ev.target.textContent = '✅ Copied!'; } catch(e){ prompt('Copy this prompt:', t); } }}, '📋 Copy prompt'),
+      el('button',{class:'btn small blue', onclick:()=>file.click()}, '📤 Upload picture'),
+      has ? el('button',{class:'btn small gray', onclick:()=>{ try { localStorage.removeItem('sb_paint_' + kidId); } catch(e){} status.textContent = 'Painting removed.'; if (redraw) redraw(); }}, '↩️ Remove painting') : null),
+    status, file);
+}
+
+/* ===== Painted hero recolor: skin, hair color, eyes, freckles change the painting itself, instantly, on the iPad.
+   heroes/<kid>_t<N>_mask.png marks hair (red), skin (green), irises (blue). Each pixel keeps its painted light and
+   shade (its brightness relative to the original colour) and takes the new colour. */
+function heroTintInfo(){ return {"gia_t0": {"hair": "#b73a9f", "skin": "#ffa673", "eyes": "#b51c92", "face": [152, 73, 102, 99]}, "gia_t1": {"hair": "#923a80", "skin": "#e87d56", "eyes": "#ad198a", "face": [203, 73, 104, 102]}, "gia_t7": {"hair": "#913d8f", "skin": "#f59c80", "eyes": "#8b2c70", "face": [177, 70, 102, 99]}, "miles_t0": {"hair": "#562d2d", "skin": "#ffb06b", "eyes": "#096caa", "face": [200, 65, 110, 103]}, "miles_t1": {"hair": "#4c311f", "skin": "#ffb772", "eyes": "#0a6d9e", "face": [148, 66, 110, 103]}, "miles_t4": {"hair": "#3d2726", "skin": "#f5a576", "eyes": "#1d79a0", "face": [201, 57, 113, 106]}}; }   // a function so it works before this line runs (heroes draw during startup)
+function tintKey(t){ return t ? ['hair','skin','eyes','freckles'].map(k => t[k] || '').join('|') : ''; }
+function tintedHero(pic, t){
+  const tintDone = tintedHero.done || (tintedHero.done = {}), tintBusy = tintedHero.busy || (tintedHero.busy = {});
+  const key = tintKey(t), info = heroTintInfo()[pic.replace(/^heroes\/|\.png$/g, '')];
+  if (!key.replace(/\|/g, '') || !info) return pic;
+  const id = pic + '#t=' + key;
+  if (tintDone[id]) return tintDone[id];
+  if (!tintBusy[id]){ tintBusy[id] = 1; makeTint(pic, info, t).then(url => {
+      tintDone[id] = url;
+      document.querySelectorAll('image').forEach(im => { if (im.getAttribute('href') === id) im.setAttribute('href', url); });
+    }).catch(() => { tintDone[id] = pic; }); }
+  return id;   // the plain painting shows for a moment, then swaps to the recolored one
+}
+function makeTint(pic, info, t){
+  const load = src => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; });
+  return Promise.all([load(pic), load(pic.replace('.png', '_mask.png'))]).then(([im, mk]) => {
+    const W = im.naturalWidth, H = im.naturalHeight, c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d'); g.drawImage(mk, 0, 0, W, H); const m = g.getImageData(0, 0, W, H).data;
+    g.clearRect(0, 0, W, H); g.drawImage(im, 0, 0); const d = g.getImageData(0, 0, W, H), p = d.data;
+    const hx = s => [1, 3, 5].map(i => parseInt(s.slice(i, i + 2), 16)), lum = (r, gg, b) => r * .299 + gg * .587 + b * .114;
+    const parts = [['hair', 0, 1], ['skin', 1, .5], ['eyes', 2, 1]].filter(([k]) => t[k]).map(([k, ch, soft]) => {
+      const ref = hx(info[k]); return { ch, soft, to: hx(t[k]), ref: Math.max(1, lum(...ref)) }; });
+    for (let i = 0; i < p.length; i += 4){
+      if (!p[i + 3]) continue;
+      for (const q of parts){
+        const w = m[i + q.ch] / 255; if (w < .02) continue;
+        let k = lum(p[i], p[i + 1], p[i + 2]) / q.ref; k = 1 + (k - 1) * q.soft;
+        for (let j = 0; j < 3; j++) p[i + j] = p[i + j] * (1 - w) + Math.min(255, q.to[j] * k) * w;
+      }
+    }
+    g.putImageData(d, 0, 0);
+    if (t.freckles){ const [fx, fy, fw, fh] = info.face; g.fillStyle = 'rgba(130,64,36,.55)';
+      [[.3, .66], [.7, .66]].forEach(([cx, cy]) => [[0,0],[-.06,-.03],[.06,-.02],[-.03,.04],[.04,.045],[-.09,.02],[.09,.025]].forEach(([dx, dy]) => {
+        g.beginPath(); g.arc(fx + (cx + dx) * fw, fy + (cy + dy) * fh, Math.max(1, fw * .012), 0, 7); g.fill(); })); }
+    return c.toDataURL('image/png');
+  });
+}
 })();
 
 
