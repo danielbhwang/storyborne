@@ -804,7 +804,7 @@ function screenFamilyLogin(mode = 'in', open = false){
   const svg = scene.querySelector('svg');
   const fitScene = e => { if (!svg) return; if (e && !document.body.contains(scene)) return removeEventListener('resize', fitScene); const a = innerWidth / innerHeight;
     svg.setAttribute('preserveAspectRatio', 'xMidYMid slice');
-    if (a < 1.3){ const w = Math.max(560, 1000 * a); svg.setAttribute("viewBox", `${Math.max(0, 380 - w / 2)} 0 ${w} 1000`); } else svg.setAttribute('viewBox', '0 0 1600 1000'); };
+    titleFit(svg, 380, 560); };
   if (svg){ svg.removeAttribute('width'); svg.removeAttribute('height'); fitScene(); addEventListener('resize', fitScene); }
   const hero = el('section',{class:'lp-hero'},
     scene, el('div',{class:'lp-rays'}), sparks,
@@ -3699,7 +3699,7 @@ async function maybeStarfallChest(){
   const left = MYTHICS.filter(m => !(K.mythics || []).includes(m.id));
   await new Promise(res => {
     const ov = el('div',{class:'epic-overlay epic-mythic'}, el('div',{class:'epic-rays'}),
-      el('div',{class:'epic-card'}, el('div',{class:'epic-tier'},'🌠 STARFALL CHEST 🌠'), el('div',{class:'chest-shake', html: CHEST_SVG}),
+      el('div',{class:'epic-card'}, el('div',{class:'epic-tier'},'🌠 STARFALL CHEST 🌠'), el('div',{class:'chest-shake', html: artReady('art/chests/starfall.webp') ? `<img src="art/chests/starfall.webp" alt="Starfall Chest" style="width:min(70vw,300px);height:auto;filter:drop-shadow(0 0 24px rgba(160,180,255,.7))">` : CHEST_SVG}),
         el('h2',{class:'epic-title'},'A Starfall Chest fell from the sky!'), el('p',{class:'epic-sub'},'Super rare! Tap to open it.'),
         el('button',{class:'btn big', onclick:()=>{ ov.remove(); res(); }},'🗝️ Open it!')));
     document.body.append(ov); beep('level'); confetti(60); say('Whoa! A Starfall Chest fell from the sky!');
@@ -3718,24 +3718,9 @@ const WORLD_THEMES = {
   candy:   { name:'Candy Land',   price:40, sky:'linear-gradient(#fbcfe8,#fdf2f8)', ground:'repeating-linear-gradient(45deg,#f9a8d4 0 20px,#fff 20px 40px)' },
   space:   { name:'Outer Space',  price:40, sky:'radial-gradient(#fff 1.2px,transparent 1.7px) 0 0/34px 34px, linear-gradient(#020617,#1e1b4b)', ground:'radial-gradient(#94a3b8 10px,transparent 11px) 0 0/60px 40px, linear-gradient(#64748b,#334155)' },
   lava:    { name:'Volcano Island', price:40, sky:'linear-gradient(#7c2d12,#fb923c)', ground:'linear-gradient(#292524,#7f1d1d)' },
-  // ---- new places (Nov 2) ----
-  town:      { name:'Town Center',       price:30, sky:'linear-gradient(#60a5fa,#e0f2fe)', ground:'linear-gradient(#e7e5e4,#d6d3d1)' },
-  sunset:    { name:'Sunset Beach',      price:30, sky:'linear-gradient(#f97316,#fde68a)' },
-  tropic:    { name:'Tropical Island',   price:35, sky:'linear-gradient(#22d3ee,#a5f3fc)' },
-  forest:    { name:'Enchanted Forest',  price:30, sky:'linear-gradient(#065f46,#a7f3d0)' },
-  desert:    { name:'Desert Dunes',      price:30, sky:'linear-gradient(#fb923c,#fef3c7)' },
-  waterpark: { name:'Splash Water Park', price:45, sky:'linear-gradient(#0ea5e9,#e0f2fe)' },
-  jungle:    { name:'Jungle Falls',      price:40, sky:'linear-gradient(#15803d,#bbf7d0)' },
   under:     { name:'Under the Sea',     price:45, sky:'linear-gradient(#0c4a6e,#22d3ee)' },
-  rainbow:   { name:'Rainbow Land',      price:40, sky:'linear-gradient(#f472b6,#a78bfa,#60a5fa)' },
   castle:    { name:'Castle Kingdom',    price:45, sky:'linear-gradient(#6366f1,#e0e7ff)' },
   dino:      { name:'Dino Valley',       price:40, sky:'linear-gradient(#ca8a04,#fef9c3)' },
-  pirate:    { name:'Pirate Cove',       price:40, sky:'linear-gradient(#1e3a8a,#93c5fd)' },
-  farm:      { name:'Autumn Farm',       price:30, sky:'linear-gradient(#f59e0b,#fef3c7)' },
-  blossom:   { name:'Cherry Blossom Garden', price:35, sky:'linear-gradient(#f9a8d4,#fdf2f8)' },
-  skycity:   { name:'Sky City',          cosmic:8,  sky:'linear-gradient(#3b82f6,#c7d2fe)' },
-  clouds:    { name:'Cloud Kingdom',     cosmic:8,  sky:'linear-gradient(#a5b4fc,#fdf4ff)' },
-  aurora:    { name:'Northern Lights',   cosmic:10, sky:'linear-gradient(#020617,#065f46,#7c3aed)' }
 };
 const WORLD_W = 1800, WORLD_H = 470, GROUND_Y = 300;
 
@@ -3915,9 +3900,15 @@ function frontGrassSVG(themeId){
   return s + '</svg>';
 }
 
+// places retired Nov 10 (only painted places are offered): anyone who bought one gets the price back, once
+const RETIRED_THEMES = { town:{stars:30}, sunset:{stars:30}, tropic:{stars:35}, forest:{stars:30}, desert:{stars:30}, waterpark:{stars:45}, jungle:{stars:40}, rainbow:{stars:40}, pirate:{stars:40}, farm:{stars:30}, blossom:{stars:35}, skycity:{cosmic:8}, clouds:{cosmic:8}, aurora:{cosmic:10} };
 function worldOf(k){
   const D = DB.kids[k];
   D.world = Object.assign({ theme:'meadow', themes:['meadow'], items:[], nextId:1 }, D.world || {});
+  const gone = (D.world.themes || []).filter(t => RETIRED_THEMES[t]);
+  if (gone.length && !isDev()){ gone.forEach(t => { const r = RETIRED_THEMES[t];
+      if (r.stars) D.spent = Math.max(0, (D.spent || 0) - r.stars); else D.cosmicSpent = Math.max(0, (D.cosmicSpent || 0) - r.cosmic); });
+    D.world.themes = D.world.themes.filter(t => !RETIRED_THEMES[t]); if (!WORLD_THEMES[D.world.theme]) D.world.theme = 'meadow'; save(); }
   return D.world;
 }
 function friendItems(k){
@@ -4115,7 +4106,7 @@ function screenWorld(visitKid){
   const life = ++worldLifeGen;
   const alive = () => life === worldLifeGen && av.isConnected;
   let facing = 1;
-  const setFace = d => { facing = d; avBody.style.transform = d < 0 ? 'scaleX(-1)' : ''; };
+  const setFace = d => { facing = d; avBody.style.transform = d < 0 ? 'scaleX(-1)' : ''; avBody.style.setProperty('--fx', d < 0 ? -1 : 1); };
   const pop = (txt, ms=1900) => { bubble.textContent = txt; bubble.classList.remove('show'); void bubble.offsetWidth; bubble.classList.add('show');
     setTimeout(() => { if (bubble.textContent === txt) bubble.classList.remove('show'); }, ms); };
   const pose = (cls, ms) => { avBody.classList.add(cls); return wsleep(ms).then(() => avBody.classList.remove(cls)); };
@@ -4741,8 +4732,12 @@ const BOSS_LOOKS = {
   }
 };
 let bossSeq = 0;
+const BOSS_ART = ['son_1', 'son_2', 'son_3', 'son_4', 'son_5', 'son_6', 'son_7', 'son_8', 'son_9', 'son_10', 'son_11', 'son_12', 'daughter_1', 'daughter_2', 'daughter_3', 'daughter_4', 'daughter_5', 'daughter_6', 'daughter_7', 'daughter_8', 'daughter_9', 'daughter_10', 'daughter_11', 'daughter_12'];
 function bossArt(B, size = 160, track){
   const tk = track || TK, lv = Object.keys(BOSSES[tk] || {}).find(k => BOSSES[tk][k] === B);
+  const pb = `art/bosses/${tk}_${lv}.webp`;
+  if (BOSS_ART.includes(`${tk}_${lv}`) && artReady(pb)){ const u0 = 'bp' + (++bossSeq);
+    return `<svg viewBox="0 -28 240 268" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg" class="boss-svg painted"><defs><radialGradient id="${u0}"><stop offset="0" stop-color="${B.color}" stop-opacity=".7"/><stop offset=".6" stop-color="${B.color}" stop-opacity=".22"/><stop offset="1" stop-color="${B.color}" stop-opacity="0"/></radialGradient></defs><circle cx="120" cy="118" r="120" fill="url(#${u0})"/><g class="boss-body"><image href="${pb}" x="-6" y="-24" width="252" height="252" preserveAspectRatio="xMidYMax meet"/></g></svg>`; }
   const L = Object.assign({ body:'brute', f:[], skin:B.color, belly:'#fde68a', eye:'#fde047', mane:'#1f2937' }, (BOSS_LOOKS[tk] || {})[lv] || {});
   const has = x => L.f.includes(x), u = 'bs' + (++bossSeq), O = `stroke="${INK}" stroke-width="3.5" stroke-linejoin="round"`;
   const armor = '#27213a', horn = has('ice') ? '#e0f2fe' : has('rock') ? '#d6d3d1' : '#fef3c7';
@@ -5406,7 +5401,7 @@ function avatarImgFor(override = {}){
   let pic = null;
   for (let t = tier; t >= 0 && !pic; t--) if (avatarHas(base, t)) pic = `heroes/${base}_t${t}.png`;
   for (let t = tier + 1; t <= 12 && !pic; t++) if (avatarHas(base, t)) pic = `heroes/${base}_t${t}.png`;   // no picture at or below yet: lowest one above
-  return pic ? tintedHero(pic, tint) : null;
+  return pic && artReady(pic) ? tintedHero(pic, tint) : null;
 }
 // Living portrait: the painted PNG breathes, sways, glows and sheds sparkles (SMIL, so it runs on old iPads and isn't killed by lowfx). Small thumbnails stay still.
 function heroImgBody(img, size, glow){
@@ -5584,7 +5579,7 @@ function heroSVG(size = 200, override = {}){
   s += `<defs><filter id="${u}gl" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="2.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter><filter id="${u}bl" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="7"/></filter><filter id="hglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>${defs.join('')}</defs>`;
   return s + body + '</g></svg>';
 }
-function profileHero(k, size){ const keep = K; K = DB.kids[k]; try { return size ? riderNode(size) : heroNode(110); } finally { K = keep; } }
+function profileHero(k, size){ const keep = K; K = DB.kids[k]; try { return size ? heroNode(size, false) : heroNode(110); } finally { K = keep; } }   // standing, never on a mount
 function heroNode(size=170, withBuddy=true){
   const wrap = el('div',{class:'hero-wrap'}, el('div',{class:'hero-main', html: heroSVG(size)}));
   if (withBuddy && K.avatar && K.avatar.base) wrap.append(el('div',{class:'hero-buddy', html: avatarSVG(K.avatar, Math.round(size*.42))}));
@@ -5991,18 +5986,20 @@ const MOUNTS = [
 const MOUNT_BY_ID = Object.fromEntries(MOUNTS.map(m => [m.id, m]));
 const MOUNT_DROP = { gold:{ p:.05, r:['uncommon','rare'] }, cosmic:{ p:.15, r:['rare','legendary','mythic'], w:[45,42,13] } };
 function mountState(){ K.mounts = K.mounts || {}; if (!K.mounts.puffowl) K.mounts.puffowl = 1; return K.mounts; }
-/* painted mounts (Gemini art, cleaned by Claude): art/mounts/<id>.png. seat = where the rider's hips go, as a fraction of the 320x260 box. */
-const MOUNT_ART = { puffowl:{ seat:[.60,.45], rider:122 }, buzzwing:{ seat:[.50,.39], rider:112 }, sunroc:{ seat:[.54,.52], rider:122 }, gloomwing:{ seat:[.55,.60], rider:122 }, stormcrow:{ seat:[.56,.45], rider:122 }, phoenix:{ seat:[.53,.45], rider:122 }, frostmane:{ seat:[.54,.46], rider:122 } };
+/* painted mounts (Gemini art, cleaned by Claude): art/mounts/<id>.webp. seat = where the rider's hips go, as a fraction of the 320x260 box. */
+const MOUNT_ART = { puffowl:{ seat:[.60,.45], rider:122 }, buzzwing:{ seat:[.50,.39], rider:112 }, sunroc:{ seat:[.54,.52], rider:122 }, gloomwing:{ seat:[.55,.60], rider:122 }, stormcrow:{ seat:[.56,.45], rider:122 }, phoenix:{ seat:[.53,.45], rider:122 }, frostmane:{ seat:[.54,.46], rider:122 }, shadowwing:{ seat:[.42,.43], rider:122 }, voidclaw:{ seat:[.55,.44], rider:122 } };
 function mountSVG(id, size = 200, withRider = true, flap = true){
   const M = MOUNT_BY_ID[id]; if (!M) return '';
   const pimgHero = withRider && !!avatarImgFor();
-  if (MOUNT_ART[id]){
+  if (MOUNT_ART[id] && artReady(`art/mounts/${id}.webp`)){
     const A = MOUNT_ART[id], sx = A.seat[0] * 320, sy = A.seat[1] * 260;
     let rider = '';
     if (withRider){ const hw = A.rider || 112, hh = hw * 1.25, cid = 'rc' + (++heroSeq), wst = pimgHero ? .47 : HERO_WAIST, clp = pimgHero ? .16 : HERO_CLIP;
-      rider = `<clipPath id="${cid}"><rect x="0" y="0" width="320" height="${sy + hh*clp}"/></clipPath><g clip-path="url(#${cid})">` + heroSVG(hw).replace('<svg ', `<svg x="${sx - hw/2}" y="${sy - hh*wst}" `) + '</g>'; }
-    const pic = `<image href="art/mounts/${id}.png" x="0" y="0" width="320" height="260" preserveAspectRatio="xMidYMid meet"/>`;
-    return `<svg viewBox="0 0 320 260" width="${size}" height="${size*260/320}" xmlns="http://www.w3.org/2000/svg" class="mount-svg painted${flap ? ' flap' : ''} m-${M.r}" style="overflow:visible"><g class="m-bob">${pic}${rider}${A.front ? `<image href="art/mounts/${id}_front.png" x="0" y="0" width="320" height="260" preserveAspectRatio="xMidYMid meet"/>` : ''}</g></svg>`;
+      const cutY = sy + hh*clp, fadeH = hh * .14;   // soft fade instead of a hard line, so the rider sinks into the saddle
+      rider = `<defs><linearGradient id="${cid}g" gradientUnits="userSpaceOnUse" x1="0" y1="${cutY - fadeH}" x2="0" y2="${cutY}"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>`
+        + `<mask id="${cid}" maskUnits="userSpaceOnUse" x="0" y="-200" width="320" height="${cutY + 200}"><rect x="0" y="-200" width="320" height="${cutY - fadeH + 200}" fill="#fff"/><rect x="0" y="${cutY - fadeH}" width="320" height="${fadeH}" fill="url(#${cid}g)"/></mask></defs><g mask="url(#${cid})">` + heroSVG(hw).replace('<svg ', `<svg x="${sx - hw/2}" y="${sy - hh*wst}" `) + '</g>'; }
+    const pic = `<image href="art/mounts/${id}.webp" x="0" y="0" width="320" height="260" preserveAspectRatio="xMidYMid meet"/>`;
+    return `<svg viewBox="0 0 320 260" width="${size}" height="${size*260/320}" xmlns="http://www.w3.org/2000/svg" class="mount-svg painted${flap ? ' flap' : ''} m-${M.r}" style="overflow:visible"><g class="m-bob">${pic}${rider}${A.front ? `<image href="art/mounts/${id}_front.webp" x="0" y="0" width="320" height="260" preserveAspectRatio="xMidYMid meet"/>` : ''}</g></svg>`;
   }
   // a painted hero on a flat cartoon mount clashes: until this mount is painted, show the hero on their own
   if (pimgHero) return heroSVG(Math.round(size * .5));
@@ -6179,7 +6176,7 @@ function openChest(type, again){
   const lw = rollWeaponDrop(type), lwNew = lw ? giveWeapon(lw) : false;
   const mt = rollMountDrop(type); if (mt) giveMount(mt);
   const big = t.r === 'legendary' || t.r === 'mythic';
-  const chest = el('div',{class:'oc-chest', html: chestSVG(type, 180)});
+  const ocSize = Math.round(Math.min(340, innerWidth * .62)), chest = el('div',{class:'oc-chest', html: chestSVG(type, ocSize)});
   const reveal = el('div',{class:'oc-reveal hidden', style:`--rc:${R.c}`},
     el('div',{class:'oc-rar'}, R.n.toUpperCase()),
     el('div',{class:'oc-item'}, t.e),
@@ -6199,6 +6196,7 @@ function openChest(type, again){
   const ov = el('div',{class:'oc-overlay' + (big ? ' big' : '') + ' r-' + t.r, style:`--rc:${R.c}`}, el('div',{class:'oc-rays'}), chest, reveal);
   document.body.append(ov);
   beep('tap');
+  setTimeout(() => { if (CHEST_OPEN_ART.includes(type) && artReady(`art/chests/${type}_open.webp`)){ chest.innerHTML = chestSVG(type, ocSize, true); beep('star'); } }, 520);   // lid bursts open
   setTimeout(() => { chest.classList.add('pop'); beep('star'); }, 900);
   setTimeout(() => { chest.remove(); reveal.classList.remove('hidden'); confetti(big ? 140 : t.r === 'rare' ? 60 : 25); if (big){ beep('level'); burst(t.r === 'mythic' ? 'MYTHIC!' : 'LEGENDARY!'); } say(`${R.n}! ${t.name}!` + (lw ? ` And a weapon! ${lw.name}!` : '') + (mt ? ` And a flying mount! ${mt.name}!` : '')); if ((lw || mt) && !big) confetti(80); }, 1300);
 }
@@ -6678,7 +6676,7 @@ function screenTownSquare(){
   PZ.pos = Object.assign({ x:760, y:760 }, K.plazaPos || {});
   const world = el('div',{class:'plaza-world', html: pzSceneSVG()});
   const view = el('div',{class:'plaza-view'});
-  const zz = zoomable({ view, content: world, W: PZ_W, H: PZ_H, start: PZ.z || (innerWidth < 600 ? .7 : 1), max: 2.2, onZoom: z => { PZ.z = z; } });
+  const zz = zoomable({ view, content: world, W: PZ_W, H: PZ_H, start: (() => { const cover = Math.min(1.2, Math.max((innerHeight - 170) / PZ_H, (innerWidth - 40) / PZ_W)); return PZ.z ? Math.max(PZ.z, cover) : cover; })(), max: 2.2, onZoom: z => { PZ.z = z; } });
   const frame = zz.frame; frame.classList.add('plaza-frame'); frame.append(todBadge('Storybrook'));
   const actor = (node, name, cls) => el('div',{class:'plaza-actor ' + (cls || '')}, el('div',{class:'pz-tag'}, name), node);
   const me = actor(pzHeroFor(kid, PZ_HERO), kidName(), 'me' + (isDev() ? ' wizard' : ''));
@@ -6739,14 +6737,15 @@ function screenTownSquare(){
     x = Math.max(50, Math.min(PZ_W - 50, x)); y = Math.max(150, Math.min(PZ_H - 20, y));
     const fly = PZM.mode === 'sky', tp = PZM.mode === 'blink';
     const dc = Math.hypot(x - PZ_C.x, y - PZ_C.y); if (dc < 84 && !fly){ const f = 84 / (dc || 1); x = PZ_C.x + (x - PZ_C.x)*f; y = PZ_C.y + (y - PZ_C.y)*f + (dc ? 0 : 84); }
-    const d = Math.hypot(x - PZ.pos.x, y - PZ.pos.y), dur = tp ? .01 : Math.max(.2, d / (fly ? 640 : 260)), id = ++walkId;
+    const d = Math.hypot(x - PZ.pos.x, y - PZ.pos.y), running = !fly && !tp && d > 420, dur = tp ? .01 : Math.max(.2, d / (fly ? 640 : running ? 430 : 260)), id = ++walkId;
+    me.classList.toggle('run', running);
     if (tp){ pzPowerFx(world, 'blink', PZ.pos.x, PZ.pos.y); pzPowerFx(world, 'blink', x, y); me.classList.remove('blink-in'); void me.offsetWidth; me.classList.add('blink-in'); beep('star'); }
     me.style.transitionDuration = dur + 's';
     if (Math.abs(x - PZ.pos.x) > 4) me.classList.toggle('flip', x < PZ.pos.x);
     me.classList.add('walking'); put(me, x, y); camera(x, y);
     frame.querySelectorAll('.pz-pop').forEach(p => p.remove());
     clearTimeout(walkT);
-    walkT = setTimeout(() => { if (id !== walkId) return; me.classList.remove('walking'); PZ.pos = { x, y }; pzPush(); }, dur * 1000);
+    walkT = setTimeout(() => { if (id !== walkId) return; me.classList.remove('walking', 'run'); PZ.pos = { x, y }; pzPush(); }, dur * 1000);
     then && then(); // answer the tap right away; the hero keeps walking over
   };
   // pop-up cards dock at the bottom of the town view so they're never cut off
@@ -7294,7 +7293,7 @@ window.addEventListener('unhandledrejection', e => showErr(e.reason && (e.reason
    An epic opening vista (original art): a lone hero on a cliff at sunrise, a far-off academy castle,
    a floating island with a waterfall, a dragon gliding through golden clouds, and the glowing
    Storyborne crest. Tap anywhere to begin. Shown once per visit; the app loads underneath. */
-function titleSceneSVG(night){
+function titleSceneSVG(night, noHeroes){
   const N = (day, nite) => night ? nite : day;
   const rnd = (a, b) => a + Math.random() * (b - a);
   const cloud = (x, y, s, o, cls) => `<g class="${cls}" opacity="${o}" transform="translate(${x} ${y}) scale(${s})">
@@ -7373,7 +7372,36 @@ function titleSceneSVG(night){
   </g>
   ${sparks}
   <rect width="1600" height="1000" fill="url(#tsMist)" opacity=".25" class="ts-mist2"/>
+  ${titlePaintedLayer(night)}
 </svg>`;
+}
+/* painted title vista (art/title/day.webp, night.webp when it exists) drawn over the old scene; if it fails to load,
+   the error listener hides it and the drawn scene underneath shows. Gia and Miles stand in the foreground. */
+function titlePainted(){ artReady('art/title/day.webp'); return (artReady.st || {})['art/title/day.webp'] !== -1; }
+function titlePaintedLayer(night){
+  if (!titlePainted()) return '';
+  const src = `art/title/${night && artReady('art/title/night.webp') ? 'night' : 'day'}.webp`;
+  const isNight = src.endsWith('night.webp');
+  const [top, top2, bot, bot2] = isNight ? ['#071a4a','#0b2c75','#091c28','#050f17'] : ['#3d7fd8','#72a8ed','#3d461d','#262c12'];
+  let s = `<defs><linearGradient id="tpSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${top}"/><stop offset=".84" stop-color="${top2}"/><stop offset="1" stop-color="${top2}"/></linearGradient>`
+    + `<linearGradient id="tpGround" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${bot}"/><stop offset="1" stop-color="${bot2}"/></linearGradient>`
+    + `<linearGradient id="tpFade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".07" stop-color="#fff"/><stop offset=".93" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>`
+    + `<mask id="tpMask" maskContentUnits="userSpaceOnUse"><rect x="-400" y="-33" width="2400" height="1067" fill="url(#tpFade)"/></mask></defs>`
+    + `<rect x="-400" y="-2600" width="2400" height="3100" fill="url(#tpSky)"/><rect x="-400" y="500" width="2400" height="3100" fill="url(#tpGround)"/>`
+    + `<image class="tp-full" href="${src}" x="0" y="-33" width="1600" height="1067" preserveAspectRatio="xMidYMid slice" mask="url(#tpMask)"/>`;
+  if (night && src.endsWith('day.webp')) s += `<rect x="-400" y="-2600" width="2400" height="6200" fill="#0b1640" opacity=".55" style="mix-blend-mode:multiply"/>`;
+  return s;
+}
+/* painted title: show the WHOLE painting at full width; extra height on tall screens goes above (logo) and below (tap) */
+function titleFit(svg, fallbackCx, minW){
+  const a = innerWidth / innerHeight;
+  if (titlePainted()){
+    if (a >= 1.5){ svg.setAttribute('preserveAspectRatio', 'xMidYMid slice'); svg.setAttribute('viewBox', '0 0 1600 1000'); return; }
+    // tall screens: the painting fills ~62% of the height (cropping the sides around the castle); the rest is sky for the logo and grass for the button
+    const vh = Math.max(1067, Math.min(1067 / .62, 1600 / a)), vw = Math.min(1600, vh * a), x0 = Math.max(0, Math.min(1600 - vw, 1000 - vw / 2));
+    const y0 = -33 - (vh - 1067) * .7;
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet'); svg.setAttribute('viewBox', `${Math.round(x0)} ${Math.round(y0)} ${Math.round(vw)} ${Math.round(vh)}`); return; }
+  if (a < 1.3){ const w = Math.max(minW, 1000 * a); svg.setAttribute('viewBox', `${Math.max(0, Math.min(1600 - w, fallbackCx - w / 2))} 0 ${w} 1000`); } else svg.setAttribute('viewBox', '0 0 1600 1000');
 }
 
 /* the second title scene: a moonlit, misty academy on a crag, a robed young wizard with a glowing wand */
@@ -7465,10 +7493,10 @@ function showTitleScreen(){
   // two scenes take turns: golden sunrise quest, and a moonlit misty academy
   // same hero, sword and shield: golden sunrise by day, moonlit blue at night (7 pm – 6 am)
   const hr = new Date().getHours(), night = hr >= 19 || hr < 6, cx = 470;
-  const ts = el('div',{class:'title-screen' + (night ? ' night' : ''), html: titleSceneSVG(night)});
+  const ts = el('div',{class:'title-screen' + (night ? ' night' : '') + (titlePainted() ? ' painted' : ''), html: titleSceneSVG(night)});
   // tall screens (iPad held upright): crop the scene around the hero and the castle instead of the middle
   const fit = () => { const a = innerWidth / innerHeight, svg = ts.querySelector('.ts-svg'); if (!svg) return;
-    if (a < 1.3){ const w = Math.max(600, 1000 * a); svg.setAttribute('viewBox', `${Math.max(0, cx - w / 2)} 0 ${w} 1000`); } else svg.setAttribute('viewBox', '0 0 1600 1000'); };
+    titleFit(svg, cx, 600); };
   fit(); addEventListener('resize', fit);
   ts.append(el('div',{class:'ts-logo'},
     el('div',{class:'ts-crest-wrap', html: titleCrestSVG()}),
@@ -7730,7 +7758,7 @@ function mountEpicBg(){
   let bg = document.getElementById('epic-bg');
   if (bg && bg.dataset.phase === ph) return;
   if (bg) bg.remove();
-  bg = el('div',{id:'epic-bg', 'data-phase': ph, class: (night ? 'night great-hall ' : '') + 'ph-' + ph, html: night ? greatHallSVG() : titleSceneSVG(night)});
+  bg = el('div',{id:'epic-bg', 'data-phase': ph, class: (night ? (titlePainted() ? 'night ' : 'night great-hall ') : '') + 'ph-' + ph, html: night && !titlePainted() ? greatHallSVG() : titleSceneSVG(night, true)});
   if (!night && PHASE[ph].tint) bg.append(el('div',{class:'tod-tint', style:`background:${PHASE[ph].tint};opacity:${PHASE[ph].tintOp}`}));
   bg.append(el('div',{class:'eb-shade'}));
   document.body.prepend(bg);
@@ -8442,7 +8470,7 @@ function truesightTap(p, i){
   return true;
 }
 
-if (navigator.webdriver) window.__sb = { expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, fairOpts: (...a) => fairOpts(...a), quizPool: (...a) => quizPool(...a), finishQuiz: (...a) => finishQuiz(...a), QTYPE: q => QTYPE(q), getDB: () => DB, GEAR_SETS, GEAR_SLOTS };
+if (navigator.webdriver) window.__sb = { expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, fairOpts: (...a) => fairOpts(...a), quizPool: (...a) => quizPool(...a), finishQuiz: (...a) => finishQuiz(...a), QTYPE: q => QTYPE(q), getDB: () => DB, GEAR_SETS, GEAR_SLOTS, bossArt, BOSSES, screenTownSquare: () => screenTownSquare(), screenWorld: () => screenWorld(), screenStables: () => screenStables(), screenChests: () => screenChests(), weaponIcon: (i, s) => weaponIcon(i, s) };
 mountEpicBg(); setInterval(mountEpicBg, 10 * 60 * 1000);
 if (navigator.webdriver) window.__landing = () => screenFamilyLogin();
 /* ======================= STORYBORNE 2.0: adaptive curriculum UI =======================
@@ -8951,6 +8979,8 @@ function qpScene(G){
     <linearGradient id="qpgold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fef08a"/><stop offset=".6" stop-color="#facc15"/><stop offset="1" stop-color="#eab308"/></linearGradient>
     <linearGradient id="qpblue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#93c5fd"/><stop offset="1" stop-color="#3b82f6"/></linearGradient>
     <linearGradient id="qpgrey" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e2e8f0"/><stop offset="1" stop-color="#94a3b8"/></linearGradient></defs>`;
+  if (artReady('art/quest/bg.webp')) s += `<image href="art/quest/bg.webp" x="0" y="0" width="1024" height="640" preserveAspectRatio="xMidYMid slice"/>`;
+  else {
   s += `<rect width="1024" height="640" fill="url(#qpsky)"/><path d="M0 230 L130 140 L250 220 L380 120 L520 220 L660 140 L820 230 L950 150 L1024 200 V640 H0Z" fill="${G ? '#7c3aed' : '#60a5fa'}" opacity=".32"/>`;
   s += `<path d="M0 290 Q240 220 500 270 T1024 250 V640 H0Z" fill="${G ? '#4ade80' : '#86efac'}"/>`;
   if (G){
@@ -8962,6 +8992,7 @@ function qpScene(G){
     s += `<g transform="translate(80 150)"><path d="M0 0 v60" stroke="#e5e7eb" stroke-width="2"/><circle cx="0" cy="74" r="16" fill="none" stroke="#1f2937" stroke-width="9"/></g>`;
     s += tree(520, 214, 1.3, '#15803d') + tree(680, 204, 1.6, '#22c55e') + pine(820, 224, 1.5) + tree(960, 214, 1.4, '#15803d') + pine(400, 234, 1.2);
   }
+  }
   s += `<path d="M-20 610 C140 610 180 510 290 530 C410 552 430 430 550 430 C670 430 700 510 830 462 C910 430 970 400 1040 410 L1040 320 C960 312 900 340 820 378 C700 430 670 350 550 352 C420 354 400 472 280 452 C170 434 130 510 -20 510Z" fill="#fde68a" stroke="#eab308" stroke-width="3"/>`;
   s += `<path d="M-20 560 C140 560 170 470 285 492 C405 514 425 390 550 390 C670 390 700 470 825 420 C905 388 965 352 1040 360" stroke="#fff" stroke-width="16" fill="none" stroke-linecap="round" opacity=".9"/>`;
   return s;
@@ -8969,6 +9000,7 @@ function qpScene(G){
 function qpTag(t, y){ const w = Math.max(70, t.length * 8 + 24); return `<g transform="translate(0 ${y})"><rect x="${-w/2}" y="-14" width="${w}" height="28" rx="14" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/><text y="5" text-anchor="middle" font-family="Nunito,Arial,sans-serif" font-weight="800" font-size="15" fill="#334155">${String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</text></g>`; }
 function qpStar(x, y, r){ let d = ''; for (let i = 0; i < 10; i++){ const a = -Math.PI/2 + i*Math.PI/5, rr = i % 2 ? r*.45 : r; d += (i ? 'L' : 'M') + (x + Math.cos(a)*rr).toFixed(1) + ' ' + (y + Math.sin(a)*rr).toFixed(1); } return `<path d="${d}Z" fill="#fde047" stroke="#b45309" stroke-width="1.5"/>`; }
 function qpNodeArt(n){
+  const painted = qpPaintedNode(n); if (painted) return painted;
   const done = n.state === 'done', now = n.state === 'now', locked = n.state === 'locked', fill = done ? 'url(#qpgold)' : locked ? 'url(#qpgrey)' : 'url(#qpblue)', rim = now ? '#fde047' : '#fff', base = done ? '#b45309' : locked ? '#64748b' : '#1e40af';
   let s = now ? `<ellipse class="qp-pulse" cx="0" cy="2" rx="54" ry="23" fill="#fff" opacity=".45"/>` : '';
   if (n.kind === 'boss' || n.kind === 'gate'){
@@ -9294,14 +9326,14 @@ screenParent = function(which){
 };
 
 /* ===== Painted art (Gemini pictures cleaned by Claude). One manifest per kind; ids not listed keep their drawn art. =====
-   art/world/<id>.png   My World items (buildings, nature, rides, animals, holiday, legendary)
-   art/plaza/<id>.png   Town Square buildings (townhall, library, shop, armory, heroes, trophy, roost, portal)
-   art/weapons/<id>.png legendary weapons   art/pets/<id>.png companions   art/mounts/<id>.png (see MOUNT_ART) */
-const ART = { world:[], plaza:['ground','townhall','library','shop','armory','heroes','trophy','roost','hall','portal','wands'], weapons:[], pets:['p_dragon','p_kitty','p_puppy','p_bunny','p_unicorn','p_owl','p_panda','p_robot','p_phoenix'], npc:['owl','baker','keeper'] };
-const artURL = (kind, id) => `art/${kind}/${id}.png`;
-const hasArt = (kind, id) => (ART[kind] || []).includes(id);
+   art/world/<id>.webp   My World items (buildings, nature, rides, animals, holiday, legendary)
+   art/plaza/<id>.webp   Town Square buildings (townhall, library, shop, armory, heroes, trophy, roost, portal)
+   art/weapons/<id>.webp legendary weapons   art/pets/<id>.webp companions   art/mounts/<id>.webp (see MOUNT_ART) */
+const ART = { world:[], plaza:['ground','townhall','library','shop','armory','heroes','trophy','roost','hall','portal','wands'], weapons:['shadowfang','wildwood','tidecrest','moonsilver','ironclad','crystalshard','sunfeather','voidbloom','sunspire','frostwail','stormcaller','emberfall','twinmoon','starforged'], pets:['p_dragon','p_kitty','p_puppy','p_bunny','p_unicorn','p_owl','p_panda','p_robot','p_turtle','p_phoenix'], npc:['owl','baker','keeper'] };
+const artURL = (kind, id) => `art/${kind}/${id}.webp`;
+const hasArt = (kind, id) => (ART[kind] || []).includes(id) && artReady(kind === 'plaza' && id === 'ground' ? 'art/plaza/ground.webp' : artURL(kind, id));
 ART.world.forEach(id => { TOWN_SVG[id] = `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" class="painted-art"><image href="${artURL('world', id)}" x="0" y="0" width="200" height="200" preserveAspectRatio="xMidYMax meet"/></svg>`; });
-ART.pets.forEach(id => { PET[id] = () => `<g class="petbob"><ellipse cx="34" cy="214" rx="18" ry="4" fill="#000" opacity=".15"/><image href="${artURL('pets', id)}" x="6" y="160" width="56" height="56" preserveAspectRatio="xMidYMax meet"/></g>`; });
+ART.pets.forEach(id => { const drawn = PET[id]; PET[id] = (...a) => !artReady(artURL('pets', id)) && drawn ? drawn(...a) : `<g class="petbob"><ellipse cx="34" cy="214" rx="18" ry="4" fill="#000" opacity=".15"/><image href="${artURL('pets', id)}" x="6" y="160" width="56" height="56" preserveAspectRatio="xMidYMax meet"/></g>`; });
 { const lwBase = legendWeaponSVG;
   legendWeaponSVG = function(id){
     if (!hasArt('weapons', id)) return lwBase(id);
@@ -9310,28 +9342,26 @@ ART.pets.forEach(id => { PET[id] = () => `<g class="petbob"><ellipse cx="34" cy=
 { const pzBase = pzBuildingSVG;
   pzBuildingSVG = function(b){
     if (!hasArt('plaza', b.id)) return pzBase(b);
-    const W = Math.min(b.w * 1.75, 400), H = W, ink = '#2a2118';
+    const W = Math.min(b.w * 1.22, b.id === 'townhall' ? 360 : 290), H = W, ink = '#2a2118';
     return `<g data-b="${b.id}" class="pz-b painted"><ellipse cx="${b.x}" cy="${b.y+4}" rx="${b.w*.6}" ry="18" fill="#000" opacity=".16"/>`
       + `<image href="${artURL('plaza', b.id)}" x="${b.x - W/2}" y="${b.y - H + 10}" width="${W}" height="${H}" preserveAspectRatio="xMidYMax meet"/>`
       + `<rect x="${b.x-90}" y="${b.y+14}" width="180" height="34" rx="10" fill="#fff" stroke="${ink}" stroke-width="3"/><text x="${b.x}" y="${b.y+37}" text-anchor="middle" font-weight="800" font-size="18" fill="${ink}">${b.icon} ${b.name}</text></g>`;
   }; }
 
-/* painted armor piece icons: art/gear/<set>_<slot>.png. The weapon slot shows the staff for Gia and the sword for Miles. */
+/* painted armor piece icons: art/gear/<set>_<slot>.webp. The weapon slot shows the staff for Gia and the sword for Miles. */
 const GEAR_ALL = ['helmet','shoulders','chest','gloves','belt','pants','boots','sword','staff'];
 const GEAR_ART = Object.fromEntries(['traveler','squire','ember','frost','storm'].map(id => [id, GEAR_ALL]));
-// no staff drawn for these: jade (third sword), shadow (bow, saved as its sword icon), starforge/celestial/tempest/phoenix (shield instead)
-['jade','shadow','starforge','celestial','tempest','phoenix','glacier','dragonlord'].forEach(id => GEAR_ART[id] = GEAR_ALL.filter(s => s !== 'staff'));
-GEAR_ART.jade = GEAR_ALL.filter(s => s !== 'staff');   // Gemini drew a third sword instead of a staff; Gia shows the sword until a staff arrives
+['jade','shadow','starforge','celestial','tempest','phoenix','glacier','dragonlord'].forEach(id => GEAR_ART[id] = GEAR_ALL);   // staffs from the 8-staff sheet
 function gearArtFor(setId, slot){
   const have = GEAR_ART[setId]; if (!have) return null;
   const s = slot === 'weapon' ? (heroKidKey() === 'daughter' && have.includes('staff') ? 'staff' : 'sword') : slot;
-  return have.includes(s) ? artURL('gear', `${setId}_${s}`) : null;
+  return have.includes(s) && artReady(artURL('gear', `${setId}_${s}`)) ? artURL('gear', `${setId}_${s}`) : null;
 }
 
-/* painted Town Square ground (art/plaza/ground.png, 1600x1120 box): replaces the drawn grass, paths, flower beds,
+/* painted Town Square ground (art/plaza/ground.webp, 1600x1120 box): replaces the drawn grass, paths, flower beds,
    cottages and trees. The fountain is part of the painting; an invisible circle keeps it tappable. */
 function pzPaintedScene(s, C){
-  s += `<image href="art/plaza/ground.jpg" x="0" y="0" width="${PZ_W}" height="${PZ_H}" preserveAspectRatio="xMidYMid slice"/>`;
+  s += `<image href="art/plaza/ground.webp" x="0" y="0" width="${PZ_W}" height="${PZ_H}" preserveAspectRatio="xMidYMid slice"/>`;
   s += `<g data-b="well" class="pz-b"><circle cx="${C.x}" cy="${C.y}" r="90" fill="#fff" opacity="0"/></g>`;
   PZ_BUILDINGS.forEach(b => s += pzBuildingSVG(b));
   return s + '</svg>';
@@ -9340,9 +9370,9 @@ function pzPaintedScene(s, C){
 /* painted reading buddies: reuse the painted pets where they match, own art for koala and ninja */
 function buddyArt(base){   // a function declaration so it works before this line runs (buddies draw during startup)
   const p = { bunny:'pets/p_bunny', dragon:'pets/p_dragon', robot:'pets/p_robot', puppy:'pets/p_puppy', kitten:'pets/p_kitty', koala:'buddies/koala', ninja:'buddies/ninja' }[base];
-  return p ? `art/${p}.png` : null; }
+  return p && artReady(`art/${p}.webp`) ? `art/${p}.webp` : null; }
 /* sets that came with a shield: Miles sees it next to his sword in the weapon slot */
-function gearShieldFor(setId, slot){ return slot === 'weapon' && heroKidKey() !== 'daughter' && ['starforge','celestial','tempest','phoenix','glacier','dragonlord'].includes(setId) ? artURL('gear', `${setId}_shield`) : null; }
+function gearShieldFor(setId, slot){ return slot === 'weapon' && heroKidKey() !== 'daughter' && ['starforge','celestial','tempest','phoenix','glacier','dragonlord'].includes(setId) && artReady(artURL('gear', `${setId}_shield`)) ? artURL('gear', `${setId}_shield`) : null; }
 
 /* ===== Painted heroes for new players =====
    Gia and Miles have hand-made paintings. Anyone else picks their look in the creator, gets a ready-made prompt for an
@@ -9447,6 +9477,100 @@ function makeTint(pic, info, t){
         g.beginPath(); g.arc(fx + (cx + dx) * fw, fy + (cy + dy) * fh, Math.max(1, fw * .012), 0, 7); g.fill(); })); }
     return c.toDataURL('image/png');
   });
+}
+
+/* ===== Painted art safety: a painted picture is only used once it has actually loaded. Until then (or if the file is
+   missing on the website) the old drawing shows, so the game never shows broken-image boxes. Results are remembered on
+   the device so the next visit paints straight away, and are re-checked every session. */
+function artReady(url){
+  const st = artReady.st || (artReady.st = (() => { try { return JSON.parse(localStorage.getItem('sb_artOK') || '{}'); } catch(e){ return {}; } })());
+  const seen = artReady.seen || (artReady.seen = {});
+  if (!seen[url]){
+    seen[url] = 1;
+    const im = new Image();
+    im.onload = () => { const was = st[url]; st[url] = 1; artSave(); if (was !== 1) cloudRedraw(); };
+    im.onerror = () => { const was = st[url]; st[url] = -1; artSave(); if (was === 1) cloudRedraw(); };
+    im.src = url;
+  }
+  return st[url] !== -1;
+}
+function artSave(){ clearTimeout(artSave.t); artSave.t = setTimeout(() => { try { localStorage.setItem('sb_artOK', JSON.stringify(artReady.st)); } catch(e){} }, 300); }
+// last line of defence: hide any painted picture that still fails to load
+window.addEventListener('error', e => {
+  const t = e.target, src = t && t.getAttribute && (t.getAttribute('href') || t.getAttribute('src') || '');
+  if (src && /^(art|heroes)\//.test(src)){ t.style.display = 'none'; if (artReady.st) { artReady.st[src.split('#')[0]] = -1; artSave(); } }
+}, true);
+
+// no bulk preload: each picture loads only when a screen shows it (artReady assumes it exists; a failed load falls back)
+
+/* painted My World backgrounds (art/world/bg_<theme>.webp, 2700x705 = the 1800x470 stage at 1.5x).
+   The painting replaces the drawn sky, hills and grass; sunset/night tint it like the drawn sky does. */
+const WORLD_BG_ART = ['meadow','beach','snow','candy','lava','space','night','castle','dino','under'];
+function worldBgArt(themeId){ const u = `art/world/bg_${themeId}.webp`; return WORLD_BG_ART.includes(themeId) && artReady(u) ? u : null; }
+{ const sceneBase = sceneSVG, grassBase = frontGrassSVG;
+  sceneSVG = function(themeId){
+    const u = worldBgArt(themeId); if (!u) return sceneBase(themeId);
+    const PH = PHASE[dayPhase()], live = !FIXED_SKY.includes(themeId);
+    let t = '';
+    if (live && PH.tint) t = dayPhase() === 'night' ? `<rect width="${WORLD_W}" height="${WORLD_H}" fill="${PH.tint}" opacity="${PH.tintOp || .55}" style="mix-blend-mode:multiply"/>`
+      : `<rect width="${WORLD_W}" height="${WORLD_H}" fill="${PH.tint}" opacity="${Math.min(.28, PH.tintOp || .2)}" style="mix-blend-mode:soft-light"/>`;
+    return `<svg viewBox="0 0 ${WORLD_W} ${WORLD_H}" width="${WORLD_W}" height="${WORLD_H}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"><rect width="${WORLD_W}" height="${WORLD_H}" fill="#7ec850"/><image href="${u}" x="0" y="0" width="${WORLD_W}" height="${WORLD_H}" preserveAspectRatio="none"/>${t}</svg>`;
+  };
+  frontGrassSVG = function(themeId){ return worldBgArt(themeId) ? '' : grassBase(themeId); };
+}
+
+/* dust puffs at each footfall for whoever is walking (Town Square, Town Hall, My World buddy) */
+setInterval(() => {
+  const now = performance.now();
+  document.querySelectorAll('.plaza-actor.walking, .th-hero.walking, .av-body.walking').forEach(w => {
+    const host = w.closest('.plaza-actor, .th-hero, .world-avatar') || w, box = host.parentElement; if (!box) return;
+    const gait = w.classList.contains('av-body') ? w : (w.querySelector('.hero-wrap') || w);
+    const step = (parseFloat(getComputedStyle(gait).animationDuration) || .9) * 500;   // two footfalls per cycle
+    if (now - (+host.dataset.lastStep || 0) < step) return; host.dataset.lastStep = now;
+    const hr = host.getBoundingClientRect(), br = box.getBoundingClientRect(), k = (br.width / (box.offsetWidth || br.width)) || 1;
+    const face = host.classList.contains('flip') || (w.style.getPropertyValue('--fx') === '-1') ? -1 : 1, run = host.classList.contains('run');
+    const fx = (hr.left + hr.width / 2 - br.left) / k - face * hr.width / k * .12, fy = (hr.bottom - br.top) / k - 4;
+    for (let i = 0; i < (run ? 3 : 2); i++){
+      const p = document.createElement('div'), sz = Math.max(9, hr.height / k * (run ? .1 : .075)) * (.8 + Math.random() * .5);
+      p.className = 'sb-puff'; p.style.cssText = `left:${fx + (Math.random() - .5) * 12}px;top:${fy + (Math.random() - .5) * 4}px;width:${sz}px;height:${sz}px;z-index:${(parseInt(host.style.zIndex) || 1) - 1};--dx:${-face * (8 + Math.random() * 16)}px;animation-duration:${.5 + Math.random() * .35}s`;
+      box.append(p); setTimeout(() => p.remove(), 900);
+    }
+  });
+}, 90);
+
+/* painted chests (art/chests/<type>.webp; <type>_open.webp once it exists). Same 120x100 box as the drawn chest. */
+const CHEST_ART = ['wood','silver','gold','cosmic'], CHEST_OPEN_ART = ['wood','silver','gold','cosmic'];
+{ const chestBase = chestSVG;
+  chestSVG = function(type, size = 90, open){
+    if (open && !CHEST_OPEN_ART.includes(type)) open = false;
+    const u = `art/chests/${type}${open ? '_open' : ''}.webp`;
+    if (!CHEST_ART.includes(type) || !artReady(u)) return chestBase(type, size);
+    return `<svg viewBox="0 0 120 100" width="${size}" height="${size*100/120}" xmlns="http://www.w3.org/2000/svg" class="chest-painted"><ellipse cx="60" cy="94" rx="46" ry="6" fill="#000" opacity=".22"/><image href="${u}" x="0" y="0" width="120" height="98" preserveAspectRatio="xMidYMax meet"/></svg>`;
+  }; }
+
+/* painted My World items (art/world/<id>.webp). Value = height/width of the picture. Same width as the drawn item,
+   20 percent wider for the painted ground patch. Falls back to the drawn item until the picture loads. */
+const WORLD_ITEM_ART = {"house": 0.976, "garden": 0.893, "hut": 0.805, "tent": 0.727, "school": 0.86, "hq": 0.923, "tower": 1.373, "museum": 0.923, "circus": 0.988, "factory": 1.04, "castle": 1.033, "ufo": 0.737, "tree": 1.349, "pine": 1.484, "palm": 1.317, "blossom": 1.232, "sunflower": 1.392, "tulip": 1.265, "mushroom": 1.361, "rock": 1.122, "mountain": 1.353, "volcano": 1.249, "rainbow": 1.042, "cloud": 1.042, "sun": 1.155, "moon": 1.31, "star": 0.93, "crystal": 1.396, "ball": 1.119, "target": 1.26, "ferris": 1.391, "coaster": 0.972, "carousel": 1.195, "slide": 1.039, "fountain": 0.958, "balloons": 1.515, "campfire": 0.968, "kite": 1.132, "trophy": 1.221, "present": 0.94, "treasure": 0.769, "icecream": 2.29, "cupcake": 1.151, "pizza": 0.687, "rocket": 0.873, "jet": 0.777, "heli": 1.015, "car": 0.797, "racecar": 0.75, "train": 0.88, "ship": 0.963, "sailboat": 1.028, "firetruck": 0.935, "scooter": 0.768, "trex": 0.958, "dino": 0.897, "dragon": 0.857, "unicorn": 1.089, "dolphin": 0.981, "butterfly": 0.787, "bee": 0.962, "ladybug": 0.8, "parrot": 0.883, "lion": 0.95, "penguin": 0.989, "panda": 0.926, "elephant": 0.934, "giraffe": 1.6, "dreamhouse": 0.903, "herocar": 0.657, "townhall": 1.01, "clocktower": 1.671, "skyscraper": 1.784, "apartments": 1.157, "cinema": 1.043, "burger": 1.162, "bakery": 1.12, "sushi": 1.114, "noodles": 1.105, "cafe": 1.122, "candy": 1.081, "tacotruck": 1.085, "stall": 1.085, "market": 1.162, "toystore": 1.131, "bookstore": 1.123, "petshop": 1.127, "hospital": 1.081, "road": 0.716, "crosswalk": 0.772, "lamp": 1.132, "bench": 0.942, "planter": 1.149, "trafficlight": 1.245, "busstop": 1.064, "bus": 0.663, "taxi": 0.723, "scooter2": 0.966, "statue": 1.239};
+Object.keys(WORLD_ITEM_ART).forEach(id => {
+  const drawn = TOWN_SVG[id], m = drawn && drawn.match(/width:([\d.]+)em/), em = (m ? +m[1] : 1.4) * 1.2, u = `art/world/${id}.webp`, h = Math.round(100 * WORLD_ITEM_ART[id]);
+  const painted = `<svg class="wa painted" viewBox="0 0 100 ${h}" style="width:${em.toFixed(2)}em;height:${(em * WORLD_ITEM_ART[id]).toFixed(2)}em;display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg"><image href="${u}" width="100" height="${h}"/></svg>`;
+  Object.defineProperty(TOWN_SVG, id, { configurable:true, enumerable:true, get(){ return artReady(u) ? painted : drawn; } });
+});
+
+/* painted Quest Path stops (art/quest/stop_<read|spell|lab|gate>.webp). States stay readable: done = stars + gold check,
+   now = glowing pulse, locked = greyed, bonus = +⭐. */
+function qpPaintedNode(n){
+  const kind = n.kind === 'boss' || n.kind === 'gate' ? 'gate' : n.kind, url = `art/quest/stop_${kind}.webp`;
+  if (!['read','spell','lab','gate'].includes(kind) || !artReady(url)) return null;
+  const done = n.state === 'done', now = n.state === 'now', locked = n.state === 'locked', W = kind === 'gate' ? 92 : 84;
+  let s = `<ellipse cx="0" cy="22" rx="${W*.55}" ry="13" fill="#000" opacity=".2"/>`;
+  if (now) s += `<ellipse class="qp-pulse" cx="0" cy="16" rx="${W*.7}" ry="24" fill="#fde047" opacity=".5"/>`;
+  if (kind === 'gate' && n.B) s += `<g transform="translate(-50 -168)" opacity="${locked ? .55 : 1}">${bossArt(n.B, 100).replace('<svg ', '<svg x="0" y="0" ')}</g>`;
+  s += `<image href="${url}" x="${-W/2}" y="${26 - W}" width="${W}" height="${W}" preserveAspectRatio="xMidYMax meet"${locked ? ' opacity=".6" style="filter:grayscale(.8)"' : ''}/>`;
+  if (done) s += `<circle cx="${W*.36}" cy="${8 - W*.5}" r="13" fill="#facc15" stroke="#fff" stroke-width="3"/><path d="M${W*.36 - 6} ${8 - W*.5} l4 4 l8 -8" stroke="#7c2d12" stroke-width="3.5" fill="none" stroke-linecap="round"/>`
+    + (n.kind === 'read' ? qpStar(-18, 4 - W, 9) + qpStar(0, -2 - W, 9) + qpStar(18, 4 - W, 9) : kind === 'gate' ? `<text x="0" y="${-W - 4}" text-anchor="middle" font-size="24">👑</text>` : qpStar(0, -W, 9));
+  else if (n.state === 'bonus' || (n.kind === 'spell' && !locked)) s += `<text x="${W*.32}" y="${14 - W*.85}" font-size="14" font-weight="800" fill="#7c3aed" font-family="Nunito,Arial">+⭐</text>`;
+  return s + qpTag(n.label, 42);
 }
 })();
 

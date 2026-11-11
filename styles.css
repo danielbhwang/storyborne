@@ -2019,3 +2019,48 @@ html.lowfx .lp-flyer svg *, html.lowfx .lp-pheroes svg *{ animation:none !import
 .armory-item .ai-pic.painted img.gear-shield{ width:54px; height:54px; margin-left:-22px; align-self:flex-end; }
 .hc-orig{ display:inline-flex; width:30px; height:30px; align-items:center; justify-content:center; font-size:18px; }
 .paint-more{ margin-top:14px; } .paint-more summary{ cursor:pointer; color:#6b5a44; font-size:14px; }
+
+/* painted title heroes: gentle idle bob */
+.ts-ph{ animation:tsBob 4.2s ease-in-out infinite; transform-box:fill-box; transform-origin:50% 100%; }
+.ts-ph.b{ animation-delay:-2.1s; }
+@keyframes tsBob{ 0%,100%{ transform:translateY(0) scale(1); } 50%{ transform:translateY(-6px) scale(1.01); } }
+
+/* painted title: logo centered in the open sky, "Tap to begin" on a readable pill below the heroes */
+.title-screen.painted .ts-logo{ left:0; right:0; margin:0 auto; top:4%; }
+.title-screen.painted .ts-tap{ left:50%; right:auto; bottom:3.5%; transform:translateX(-50%); white-space:nowrap; padding:10px 26px 10px 34px; border-radius:999px;
+  background:rgba(20,14,40,.62); border:2px solid rgba(255,214,120,.7); box-shadow:0 6px 24px rgba(0,0,0,.35); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); }
+@keyframes tsTapP{ 0%,100%{ opacity:.7; } 50%{ opacity:1; } }
+.title-screen.painted .ts-tap{ animation:tsTapP 2.2s ease-in-out infinite 2.4s; }
+
+.title-screen.night .ts-ph{ filter:brightness(.86) saturate(.95) drop-shadow(0 0 14px rgba(140,180,255,.35)); }
+@media (min-aspect-ratio: 1/1){ .title-screen.painted .ts-logo{ left:3%; right:auto; margin:0; top:5%; width:min(46vw,600px); } }
+/* phones: My World header wraps instead of squeezing the title into the star counter */
+@media (max-width: 600px){
+  .world-screen .topbar{ flex-wrap:wrap; row-gap:8px; }
+  .world-screen .topbar .title{ flex:1 1 60%; font-size:clamp(22px,6.4vw,30px); min-width:0; }
+  .world-screen .topbar > .row{ flex:1 1 100%; justify-content:flex-end; flex-direction:row; flex-wrap:wrap; gap:8px; }
+}
+@media (max-width: 600px){ .world-screen .topbar > .row > *{ white-space:nowrap; } }
+/* Sky Stables: the mount always fits its frame */
+.st-ride{ width:100%; display:flex; justify-content:center; }
+.st-ride svg{ max-width:92%; height:auto; }
+@media (max-width: 600px){ .st-stage{ height:auto; min-height:240px; aspect-ratio: 4 / 3; } }
+
+/* ===== walking gait (Nov 10): bounce + landing squash + lean into the move + side sway. Works with the existing flip. ===== */
+.plaza-actor .hero-wrap, .th-hero .hero-wrap{ transform-origin:50% 100%; --fx:1; }
+.plaza-actor.flip .hero-wrap, .th-hero.flip .hero-wrap{ --fx:-1; }
+.plaza-actor.walking .hero-wrap, .plaza-actor.flip.walking .hero-wrap, .th-hero.walking .hero-wrap, .av-body.walking{
+  animation:sbGait .9s cubic-bezier(.35,0,.65,1) infinite; }
+.plaza-actor.walking.run .hero-wrap{ animation-duration:.58s; --hop:-12px; --lean:9deg; }
+.av-body.walking{ --hop:-7px; --lean:5deg; animation-duration:.72s; }
+@keyframes sbGait{
+  0%  { translate:0 0;                 scale:1.03 .965; rotate:calc(var(--fx,1) * var(--lean,4deg) - 2deg); }
+  25% { translate:0 var(--hop,-6px);   scale:.99 1.015; rotate:calc(var(--fx,1) * var(--lean,4deg)); }
+  50% { translate:0 0;                 scale:1.03 .965; rotate:calc(var(--fx,1) * var(--lean,4deg) + 2deg); }
+  75% { translate:0 var(--hop,-6px);   scale:.99 1.015; rotate:calc(var(--fx,1) * var(--lean,4deg)); }
+  100%{ translate:0 0;                 scale:1.03 .965; rotate:calc(var(--fx,1) * var(--lean,4deg) - 2deg); }
+}
+.sb-puff{ position:absolute; border-radius:50%; background:rgba(235,225,200,.85); pointer-events:none; animation:sbPuff .7s ease-out forwards; }
+@keyframes sbPuff{ from{ transform:translate(-50%,-50%) scale(.4); opacity:.9; } to{ transform:translate(calc(-50% + var(--dx)), calc(-50% - 12px)) scale(1.6); opacity:0; } }
+@media (prefers-reduced-motion: reduce){ .plaza-actor.walking .hero-wrap, .th-hero.walking .hero-wrap, .av-body.walking{ animation:none; } .sb-puff{ display:none; } }
+.sb-puff{ background:radial-gradient(circle at 40% 40%, #fffdf6, rgba(240,230,205,.92) 60%, rgba(210,195,160,.6)); box-shadow:0 0 0 1px rgba(110,90,60,.18); }
