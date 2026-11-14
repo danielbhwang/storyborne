@@ -350,7 +350,35 @@ function setKid(k){
 function levelDef(n){ return T.levels[Math.min(Math.max(n,1), T.levels.length) - 1]; }
 function show(node){
   onCloudUpdate = null; // screens that can redraw on a cloud change set this again after show()
-  const root = $('#app'); root.innerHTML = ''; root.append(node); window.scrollTo(0,0);
+  const root = $('#app'), h = node.querySelector && node.querySelector('h1'), sig = (node.className || '') + '|' + (h ? h.textContent : '');
+  const keep = sig === show.sig ? { y: window.scrollY, inner: [...root.querySelectorAll('*')].filter(e => e.scrollTop > 0).map(e => [e.className, e.scrollTop]) } : null;
+  show.sig = sig; root.innerHTML = ''; root.append(node);
+  if (keep){   // a button re-drew the same screen: stay where you were instead of jumping to the top
+    const back = () => { window.scrollTo(0, keep.y); keep.inner.forEach(([c, t]) => { if (c){ const e = root.querySelector('.' + String(c).trim().split(/\s+/).join('.')); if (e) e.scrollTop = t; } }); };
+    back(); requestAnimationFrame(back);
+  } else window.scrollTo(0,0);
+  addFloatingBack(node);
+}
+/* every kid screen gets a way back: if a screen has no Back/Home/Done-style button of its own, add one that returns to the home screen */
+/* the phone's own Back gesture/button should step back inside the app instead of leaving it */
+try {
+  history.replaceState({ sb:0 }, ''); history.pushState({ sb:1 }, '');
+  window.addEventListener('popstate', () => {
+    try { history.pushState({ sb:1 }, ''); } catch(e){}
+    if ($('.overlay .modal')) return;                       // a pop-up is open: leave it alone
+    const z = $('.zoom-full'); if (z){ z.classList.remove('zoom-full'); document.body.classList.remove('zoom-lock'); return; }
+    try {
+      if (kid && K && K.avatar && K.avatar.base && K.hero){ if ($('.home-btn') && !$('.float-back') && !$('.topbar')) screenProfiles(); else if ($('.hero') && $('.tier-track')) screenProfiles(); else screenHome(); }
+    } catch(e){}
+  });
+} catch(e){}
+function addFloatingBack(node){
+  try {
+    if (!kid || !K || !K.avatar || !K.avatar.base || !K.hero || !node || !node.querySelectorAll) return;
+    const has = [...node.querySelectorAll('button')].some(b => /back|home|done|exit|close|cancel|quit|menu|✕|←/i.test(b.textContent || ''));
+    if (has || node.querySelector('.hero-card')) return;
+    node.append(el('button',{class:'float-back', onclick:()=>{ beep('tap'); screenHome(); }}, '← Back'));
+  } catch(e){}
 }
 
 /* ---------------- cloud save ----------------
@@ -1143,12 +1171,13 @@ function homeNav(){
       tile('🗼', 'Tower of Tales', screenTower, { cls:'big' }),
       tile(pw ? '⚡' : K.level >= 5 ? '⚡' : '🔒', pw ? 'My Power' : 'Path of Powers', screenPowers, { cls: K.level >= 5 || pw ? '' : 'locked' }),
       typeof v2Start === 'function' ? tile('🗺️', 'Skill Quest', v2Start) : null,
+      tile('📓', 'Workbook', screenWorkbook),
       tile('📚', 'Real Books', screenRealBooks)),
     group('hn-rewards', '🎁 Rewards',
       tile('🛍️', 'Shop', screenShop),
       tile('🛡️', 'Armory', screenArmory),
       tile('🪽', 'Stables', screenStables),
-      tile(TK === 'daughter' ? '🐉' : '📖', TK === 'daughter' ? 'My Dragons' : 'Pals', screenCollection),
+      tile('🐉', TK === 'daughter' ? 'My Dragons' : 'Dragons', screenCollection),
       tile('🏆', 'Trophies', screenTrophies)));
 }
 
@@ -2596,6 +2625,9 @@ async function commitResults(stars, quiz){
   screenHome([levelMsg, bookMsg].filter(Boolean).join(' ') || null);
 }
 
+/* painted dragons: art/dragons/<file>.webp, emoji until the file loads (or if there is none yet) */
+const DRAGON_ART = { Cinder:'cinder', Mistral:'mistral', Granite:'granite', Gale:'gale', Frostwing:'frostwing', Volt:'volt', Lunara:'lunara', Solace:'solace', Thistle:'thistle', Gemscale:'gemscale', Magmor:'magmor', Tidecrest:'tidecrest', Blossom:'blossom', Stardust:'stardust', 'Ember-Leaf':'emberleaf', Prism:'prism', Nimbus:'nimbus', Cosmo:'cosmo', Shade:'shade', Lyric:'lyric', Starfire:'starfire', Aurora:'aurora', Diamondheart:'diamondheart', Cometwing:'cometwing', Celestia:'celestia' };
+const dragonPic = (e, n, cls = 'dr-img') => { const u = DRAGON_ART[n] && `art/dragons/${DRAGON_ART[n]}.webp`; return u && artReady(u) ? `<img class="${cls}" src="${u}" alt="${n}">` : e; };
 function legendaryAt(level){ return T.rewards.find(r => r[3] === level); }
 async function giveReward(){
   const list = T.rewards;
@@ -2620,7 +2652,7 @@ async function giveReward(){
     const [e, n, type, lv] = available[0];
     K.collection.push(n); save();
     confetti(lv ? 140 : 60); beep('level'); say(`Your egg hatched! Meet ${n}, the ${type} dragon!`);
-    await modal(el('div',{}, el('div',{class:'big-e'}, '🐉' + e), el('h2',{}, (lv ? '✨ LEGENDARY! ' : '') + 'Meet ' + n + '!'),
+    await modal(el('div',{}, el('div',{class:'big-e', html: DRAGON_ART[n] ? dragonPic(e, n, 'dr-img big') : '🐉' + e}), el('h2',{}, (lv ? '✨ LEGENDARY! ' : '') + 'Meet ' + n + '!'),
       el('p',{}, `A baby ${type} dragon hatched and flew to your Dragon Roost!`)), [['Hooray! ▶','',1]]);
   } else {
     const [e, n, , lv] = available[0];
@@ -2635,11 +2667,11 @@ function screenCollection(){
   const owned = new Set(K.collection);
   const grid = el('div',{class:'collection'});
   T.rewards.forEach(([e,n,type,lv]) => grid.append(el('div',{class:'critter' + (owned.has(n)?'':' locked') + (lv?' legendary':'')},
-    el('div',{class:'e'}, owned.has(n) ? e : (lv && lv > K.level ? '🔒' : '❔')), el('div',{class:'n'}, owned.has(n) ? n : '???'),
+    el('div',{class:'e', html: owned.has(n) ? dragonPic(e, n) : (lv && lv > K.level ? '🔒' : '❔')}), el('div',{class:'n'}, owned.has(n) ? n : '???'),
     lv ? el('div',{class:'muted'}, owned.has(n) ? '✨ Legendary' : '✨ Legendary · Level ' + lv) : (type && owned.has(n) ? el('div',{class:'muted'}, type + ' dragon') : null))));
   const s = el('div',{class:'screen'},
     el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()},'← Back'),
-      el('h1',{class:'title'}, TK==='daughter' ? '🐉 My Dragons' : '📖 Pals'), el('div')),
+      el('h1',{class:'title'}, TK==='daughter' ? '🐉 My Dragons' : '🐉 Dragons'), el('div')),
     TK==='daughter' ? el('div',{class:'card', style:'margin-bottom:16px; display:flex; align-items:center; gap:20px'},
       el('div',{class:'egg'},'🥚'), el('div',{style:'font-size:22px'}, `Egg warmth: ${'🔥'.repeat(K.eggProgress||0)}${'⚪'.repeat(2-(K.eggProgress||0))}`, el('br'), el('span',{class:'muted'},'Great stories (2+ stars) warm your egg. 2 warmth = hatch!'))) : null,
     el('p',{class:'subtitle'}, `${K.collection.length} of ${T.rewards.length} found`),
@@ -2981,8 +3013,16 @@ const BADGES = [
   ['bossfinal','👑','Reading Legend','Defeat the final boss', k => (k.bossesBeaten||[]).includes(TRACKS[TK].levels.length)],
   ['realbook1','📕','Real Reader','Add a real book you finished', k => (k.realBooks||[]).length >= 1],
   ['realbook10','🐛','Bookworm','Finish 10 real books', k => (k.realBooks||[]).length >= 10],
+  ['b_dragon','🐉','Dragon Slayer','Defeat 2 bosses', k => (k.bossesBeaten||[]).length >= 2],
+  ['b_book','📘','Book Master','Finish 15 readings', k => normalSessions(k).length >= 15],
+  ['b_star','🌟','Star Reader','Earn 150 stars', k => (k.stars||0) >= 150],
+  ['b_forest','🌿','Forest Explorer','Read stories from 3 different series', k => new Set(normalSessions(k).map(s => s.series).filter(Boolean)).size >= 3],
+  ['b_ice','🧊','Ice Champion','Reach level 5', k => k.level >= 5],
+  ['b_scholar','👑','Royal Scholar','Master 5 tricky words', k => masteredWords(k).length >= 5],
   ['legend1','✨','Legend Hunter','Own a legendary or mythic item', k => (k.legendOwned||[]).length + (k.mythics||[]).length >= 1]
 ];
+const BADGE_ART = { b_dragon:'badge_dragonslayer', b_book:'badge_bookmaster', b_star:'badge_starreader', b_forest:'badge_forest', b_ice:'badge_champion', b_scholar:'badge_scholar' };
+const badgePic = (id, e) => BADGE_ART[id] && artReady(`art/treasures/${BADGE_ART[id]}.webp`) ? `<img class="badge-img" src="art/treasures/${BADGE_ART[id]}.webp" alt="">` : e;
 const normalSessions = k => k.sessions.filter(s => s.mode === 'normal');
 async function checkBadges(){
   for (const [id, e, name, desc, test] of BADGES){
@@ -2991,7 +3031,7 @@ async function checkBadges(){
     if (ok){
       K.badges.push(id); K.stars += 5; save(); addCosmic(2, 'New badge: ' + name);
       beep('level'); confetti(60); say(`New badge! ${name}!`);
-      await modal(el('div',{}, el('div',{class:'big-e'}, e), el('h2',{}, 'Badge: ' + name), el('p',{}, desc + '. Bonus: +5 ⭐')), [['Awesome! ▶','',1]]);
+      await modal(el('div',{}, el('div',{class:'big-e', html: badgePic(id, e)}), el('h2',{}, 'Badge: ' + name), el('p',{}, desc + '. Bonus: +5 ⭐')), [['Awesome! ▶','',1]]);
     }
   }
   await checkLegends();
@@ -3006,7 +3046,7 @@ function screenTrophies(){
       i+1 === AVATAR_UNLOCK_LEVEL ? el('div',{class:'muted'}, '+ new buddy!') : null))),
     el('h2',{class:'subtitle', style:'font-size:24px;margin-top:24px'}, `Badges (${K.badges.length}/${BADGES.length})`),
     el('div',{class:'collection'}, ...BADGES.map(([id,e,n,d]) => el('div',{class:'critter' + (K.badges.includes(id)?'':' locked')},
-      el('div',{class:'e'}, K.badges.includes(id) ? e : '❔'), el('div',{class:'n'}, n), el('div',{class:'muted'}, d)))));
+      el('div',{class:'e', html: K.badges.includes(id) ? badgePic(id, e) : '❔'}), el('div',{class:'n'}, n), el('div',{class:'muted'}, d)))));
   show(s);
 }
 
@@ -3084,7 +3124,7 @@ SHOP.push(
   ['neck','bowtie','Bow Tie',10], ['neck','pearls','Pearl Necklace',20], ['neck','scarf','Cozy Scarf',15], ['neck','medal','Gold Medal',30], ['neck','locket','Heart Locket',20],
   // pets
   ['pet','p_dragon','Baby Dragon',40], ['pet','p_kitty','Kitty',25], ['pet','p_puppy','Puppy',25], ['pet','p_bunny','Bunny',20],
-  ['pet','p_unicorn','Unicorn',45,4], ['pet','p_owl','Owl',20], ['pet','p_panda','Panda',30], ['pet','p_robot','Robo Buddy',35], ['pet','p_turtle','Turtle',15], ['pet','p_phoenix','Phoenix',80,7],
+  ['pet','p_unicorn','Unicorn',45,4], ['pet','p_owl','Owl',20], ['pet','p_panda','Panda',30], ['pet','p_robot','Robo Buddy',35], ['pet','p_turtle','Turtle',15], ['pet','p_phoenix','Phoenix',80,7], ['pet','p_fox','Spirit Fox',55,3], ['pet','p_griffin','Griffin Cub',60,4], ['pet','p_axolotl','Sparkle Axolotl',35], ['pet','p_egg','Dragon Egg',25],
   // auras (glow around your buddy)
   ['aura','a_sparkle','Sparkles',20], ['aura','a_hearts','Floating Hearts',20], ['aura','a_stars','Star Swirl',25], ['aura','a_snow','Snowflakes',20],
   ['aura','a_bubbles','Bubbles',15], ['aura','a_bolt','Lightning Power',35], ['aura','a_fire','Fire Power',50,5], ['aura','a_rainbow','Rainbow Glow',60,6]
@@ -3176,7 +3216,7 @@ const SHIELD = {
   sh_wood: () => `<circle cx="40" cy="158" r="30" fill="#b45309" stroke="#422006" stroke-width="4"/><path d="M40 128 V188 M10 158 H70" stroke="#78350f" stroke-width="3"/><circle cx="40" cy="158" r="9" fill="#94a3b8" stroke="#334155" stroke-width="3"/>`,
   sh_dragon: () => `<path d="${shieldShape}" fill="#facc15" stroke="#a16207" stroke-width="4"/><path d="M26 168 Q30 140 46 140 Q56 140 54 150 Q48 146 44 150 Q52 156 44 164 Q50 170 40 178 Q36 170 26 168Z" fill="#dc2626" stroke="#7f1d1d" stroke-width="2"/><g class="sparkle"><path d="M58 130 l2 5 l5 1 l-4 3 l1 5 l-4 -3 l-4 3 l1 -5 l-4 -3 l5 -1z" fill="#fff"/></g>`
 };
-const PETS = { p_dragon:'🐲', p_kitty:'🐱', p_puppy:'🐶', p_bunny:'🐰', p_unicorn:'🦄', p_owl:'🦉', p_panda:'🐼', p_robot:'🤖', p_turtle:'🐢', p_phoenix:'🐦‍🔥' };
+const PETS = { p_dragon:'🐲', p_kitty:'🐱', p_puppy:'🐶', p_bunny:'🐰', p_unicorn:'🦄', p_owl:'🦉', p_panda:'🐼', p_robot:'🤖', p_turtle:'🐢', p_phoenix:'🐦‍🔥', p_fox:'🦊', p_griffin:'🦅', p_axolotl:'🦎', p_egg:'🥚' };
 const PET = Object.fromEntries(Object.entries(PETS).map(([id,e]) => [id, () => `<g class="petbob"><ellipse cx="34" cy="214" rx="18" ry="4" fill="#000" opacity=".15"/><text x="34" y="210" font-size="34" text-anchor="middle">${e}</text></g>`]));
 const auraEmoji = (e, pts) => `<g class="twinkle">${pts.map(([x,y,s],i)=>`<text x="${x}" y="${y}" font-size="${s}" text-anchor="middle" style="animation-delay:${i*0.25}s">${e}</text>`).join('')}</g>`;
 const AURA_PTS = [[30,40,20],[172,36,18],[18,110,16],[186,112,20],[44,76,14],[160,80,14],[100,22,16]];
@@ -3721,6 +3761,13 @@ const WORLD_THEMES = {
   under:     { name:'Under the Sea',     price:45, sky:'linear-gradient(#0c4a6e,#22d3ee)' },
   castle:    { name:'Castle Kingdom',    price:45, sky:'linear-gradient(#6366f1,#e0e7ff)' },
   dino:      { name:'Dino Valley',       price:40, sky:'linear-gradient(#ca8a04,#fef9c3)' },
+  dreamcastle:{ name:'Dream Castle',      price:50, sky:'linear-gradient(#4c1d95,#f0abfc)' },
+  icepalace: { name:'Ice Palace',        price:50, sky:'linear-gradient(#0f766e,#1e3a8a)' },
+  aurora:    { name:'Aurora Citadel',    price:55, sky:'linear-gradient(#10b981,#312e81)' },
+  reef:      { name:'Coral Kingdom',     price:55, sky:'linear-gradient(#06b6d4,#0e7490)' },
+  glowwood:  { name:'Glowing Forest',    price:55, sky:'linear-gradient(#0f766e,#14532d)' },
+  ember:     { name:'Ember Fortress',    price:60, sky:'linear-gradient(#7c2d12,#f97316)' },
+  skyisles:  { name:'Sky Islands',       price:60, sky:'linear-gradient(#a78bfa,#fbcfe8)' },
 };
 const WORLD_W = 1800, WORLD_H = 470, GROUND_Y = 300;
 
@@ -3916,7 +3963,17 @@ function friendItems(k){
   return (D.collection || []).map(n => { const r = all.find(x => x[1] === n); return r ? ['friends','f_'+n, r[0], n, 0] : null; }).filter(Boolean);
 }
 
-let worldSel = null, worldCat = 'home', worldZoom = 1;
+/* living world: every theme gets drifting particles (snow, bubbles, fireflies, embers, sparkles). The world gets livelier as you add things. */
+const AMB_KIND = { snow:'snow', icepalace:'snow', aurora:'snow', beach:'spark', under:'bubble', reef:'bubble', lava:'ember', ember:'ember', glowwood:'fly', meadow:'fly', dino:'fly', dreamcastle:'spark', skyisles:'cloud', castle:'cloud', night:'spark', space:'spark', candy:'spark' };
+function ambientLayer(themeId, items){
+  const kind = AMB_KIND[themeId] || 'spark', n = 12 + Math.min(26, Math.round(items * 1.3)), box = el('div',{class:'amb amb-' + kind});
+  for (let i = 0; i < n; i++){
+    const r = k => ((i * 9301 + k * 49297) % 233280) / 233280;   // stable pseudo-random per slot
+    box.append(el('i',{style:`left:${(r(1) * 100).toFixed(1)}%;top:${(kind === 'cloud' ? 5 + r(2) * 45 : 8 + r(2) * 85).toFixed(1)}%;--s:${(0.6 + r(3) * 1.1).toFixed(2)};--d:${(kind === 'cloud' ? 40 + r(4) * 40 : 5 + r(4) * 9).toFixed(1)}s;animation-delay:-${(r(5) * 30).toFixed(1)}s;--dx:${((r(6) - .5) * 160).toFixed(0)}px`}));
+  }
+  return box;
+}
+let worldSel = null, worldCat = 'home', worldZoom = 0;
 function screenWorld(visitKid){
   const owner = visitKid || kid, readOnly = !!visitKid && visitKid !== kid;
   const W = worldOf(owner), theme = WORLD_THEMES[W.theme] || WORLD_THEMES.meadow;
@@ -3951,8 +4008,9 @@ function screenWorld(visitKid){
   };
   W.items.forEach(place);
   if (!FIXED_SKY.includes(themeId)) stage.append(todLayer('world'));
+  stage.append(ambientLayer(themeId, W.items.length));
   const scroller = el('div',{class:'world-scroll'});
-  const zw = zoomable({ view: scroller, content: stage, W: WORLD_W, H: WORLD_H, start: worldZoom, max: 2.5, fit: 'width', onZoom: z => { worldZoom = z; } });
+  const zw = zoomable({ view: scroller, content: stage, W: WORLD_W, H: WORLD_H, start: worldZoom || Math.min(innerWidth < 600 ? 1 : 1.5, Math.max((innerHeight - (innerHeight < 520 ? 100 : 150)) / WORLD_H, (innerWidth - 40) / WORLD_W)), max: 2.5, fit: 'width', onZoom: z => { worldZoom = z; } });
   if (!FIXED_SKY.includes(themeId) && zw.frame) zw.frame.append(todBadge());
 
   // selection toolbar
@@ -4060,7 +4118,7 @@ function screenWorld(visitKid){
           const sl = scroller.scrollLeft / zw.z;
           const it = { id: W.nextId++, k:t.id, e:t.e, x: Math.round(sl + 300 + Math.random()*300), y: GROUND_Y - 90, s: t.r === 'mythic' ? 1.8 : t.r === 'legendary' ? 1.5 : 1.1, f:false, z: W.items.length + 2 };
           W.items.push(it); worldSel = it.id; save(); place(it); refreshSel(); beep('star'); drawPalette(); }},
-          el('span',{class:'chip-e'}, t.e), el('span',{class:'chip-name'}, t.name), el('span',{class:'chip-price'}, `Lv ${t.ilvl} · ${left}/${K.treasures[t.id]}`)));
+          el('span',{class:'chip-e', html: trPic(t)}), el('span',{class:'chip-name'}, t.name), el('span',{class:'chip-price'}, `Lv ${t.ilvl} · ${left}/${K.treasures[t.id]}`)));
       });
       return;
     }
@@ -5674,9 +5732,10 @@ function legendGrid(grid){
 function screenArmory(){
   stopAll();
   const G = heroState();
-  const prev = el('div',{class:'armory-prev'}, heroNode(230));
+  const prev = el('div',{class:'armory-prev'}, heroNode(230), relicBadges());
   const grid = el('div',{class:'armory-grid' + (armorySlot === 'legend' ? ' lw-grid' : '')});
   if (armorySlot === 'legend') legendGrid(grid);
+  else if (armorySlot === 'relics') relicsGrid(grid);
   else if (armorySlot === 'wizard') wizardWardrobe(grid);
   else armorySets().forEach(S => {
     const owned = hasPiece(S.id, armorySlot), on = G.eq[armorySlot] === S.id;
@@ -5701,6 +5760,7 @@ function screenArmory(){
       el('div',{class:'grow'},
         el('div',{class:'tabs shop-tabs'}, ...GEAR_SLOTS.map(sl => el('button',{class:'tab' + (sl === armorySlot ? ' active' : ''), onclick:()=>{ armorySlot = sl; screenArmory(); }}, SLOT_ICON[sl] + ' ' + SLOT_LABEL[sl])),
           el('button',{class:'tab lw-tab' + (armorySlot === 'legend' ? ' active' : ''), onclick:()=>{ armorySlot = 'legend'; screenArmory(); }}, '🌟 Legendary Weapons'),
+          el('button',{class:'tab' + (armorySlot === 'relics' ? ' active' : ''), onclick:()=>{ armorySlot = 'relics'; screenArmory(); }}, '💍 Relics'),
           el('button',{class:'tab ww-tab' + (armorySlot === 'wizard' ? ' active' : ''), onclick:()=>{ armorySlot = 'wizard'; screenArmory(); }}, '🧙 Wizard')),
         grid,
         el('div',{class:'card', style:'margin-top:16px'}, el('h2',{style:'margin-top:0'},'Gear sets'),
@@ -5774,15 +5834,22 @@ const RARITY = {
 };
 const RARITY_ORDER = ['common','uncommon','rare','legendary','mythic'];
 const TREASURES = [
-  ['common',   [['pebble','🪨','Shiny Pebble'],['daisy','🌼','Daisy Pot'],['shroom','🍄','Toadstool'],['shell','🐚','Seashell'],['balloon','🎈','Red Balloon'],['basket','🧺','Picnic Basket'],['kite','🪁','Kite'],['acorn','🌰','Lucky Acorn'],['duckie','🦆','Rubber Duck'],['candle','🕯️','Cozy Candle']]],
-  ['uncommon', [['lantern','🏮','Paper Lantern'],['cactus','🌵','Happy Cactus'],['teddy','🧸','Big Teddy'],['bell','🔔','Golden Bell'],['music','🎶','Music Box'],['clover','🍀','Four-Leaf Clover'],['sled','🛷','Snow Sled'],['owl','🦉','Owl Statue']]],
-  ['rare',     [['crystal','🔮','Crystal Ball'],['guardian','🗿','Stone Guardian'],['gate','⛩️','Sun Gate'],['telescope','🔭','Star Telescope'],['harp','🪕','Moon Banjo'],['orb','🧿','Wishing Orb'],['amber','🦋','Amber Butterfly']]],
-  ['legendary',[['throne','👑','Royal Throne'],['volcano','🌋','Mini Volcano'],['unicorn','🦄','Unicorn Statue'],['phoenix','🐦‍🔥','Phoenix Perch'],['trident','🔱','Sea King Trident']]],
-  ['mythic',   [['galaxy','🌌','Galaxy Portal'],['planet','🪐','Ringed Planet'],['fallen','🌠','Fallen Star'],['rainbow','🌈','Rainbow Bridge']]]
+  ['common',   [['pebble','🪨','Shiny Pebble'],['daisy','🌼','Daisy Pot'],['shroom','🍄','Toadstool'],['shell','🐚','Seashell'],['balloon','🎈','Red Balloon'],['basket','🧺','Picnic Basket'],['kite','🪁','Kite'],['acorn','🌰','Lucky Acorn'],['duckie','🦆','Rubber Duck'],['candle','🕯️','Cozy Candle'],['cottage','🏡','Starter Cottage']]],
+  ['uncommon', [['lantern','🏮','Aurora Lantern'],['cactus','🌵','Happy Cactus'],['teddy','🧸','Big Teddy'],['bell','🔔','Golden Bell'],['music','🎶','Music Box'],['clover','🍀','Four-Leaf Clover'],['sled','🛷','Snow Sled'],['owl','🦉','Owl Statue']]],
+  ['rare',     [['crystal','🔮','Castle Orb'],['guardian','🗿','Stone Guardian'],['gate','⛩️','Sun Gate'],['telescope','🔭','Star Telescope'],['harp','🪕','Moon Banjo'],['orb','🧿','Wishing Orb'],['amber','🦋','Crystal Butterfly'],['compass','🧭','Star Compass'],['book','📘','Spell Book'],['amethyst','💎','Amethyst Crystal'],['treehouse','🌳','Glow Treehouse']]],
+  ['legendary',[['throne','👑','Royal Throne'],['volcano','🌋','Mini Volcano'],['unicorn','🦄','Unicorn Statue'],['phoenix','🐦‍🔥','Phoenix Perch'],['trident','🔱','Sea King Trident'],['shield','🛡️','Frost Shield'],['cloak','🧥','Mage Cloak'],['frost','❄️','Frost Blast'],['fire','🔥','Fire Burst'],['crystalcastle','🏰','Crystal Castle']]],
+  ['mythic',   [['galaxy','🌌','Galaxy Portal'],['planet','🪐','Ringed Planet'],['fallen','🌠','Fallen Star'],['rainbow','🌈','Rainbow Bridge'],['portal','🌀','Portal Jump'],['skypalace','☁️','Sky Palace']]]
 ].flatMap(([r, list]) => list.map(([id, e, name], i) => { const [a, b] = RARITY[r].lv; return { id:'tr_' + id, e, name, r, ilvl: Math.round(a + (b - a) * (list.length > 1 ? i / (list.length - 1) : .5)) }; }));
 const TREASURE_BY_ID = Object.fromEntries(TREASURES.map(t => [t.id, t]));
 TREASURES.forEach(t => { const row = ['treasure', t.id, t.e, t.name, 0]; WORLD_ITEMS.push(row); WORLD_BY_ID[t.id] = row; });
 WORLD_CATS.treasure = '🎁 Treasures';
+/* painted treasures: art/treasures/<name>.webp (falls back to the emoji until the file loads) */
+const TREASURE_ART = { tr_lantern:'lantern', tr_crystal:'orb', tr_amber:'butterfly', tr_compass:'compass', tr_book:'book', tr_amethyst:'amethyst', tr_treehouse:'home_treehouse', tr_shield:'shield', tr_cloak:'cloak', tr_frost:'power_frost', tr_fire:'power_fire', tr_crystalcastle:'home_crystalcastle', tr_portal:'power_portal', tr_skypalace:'home_skypalace', tr_cottage:'home_cottage' };
+const trURL = t => TREASURE_ART[t.id] ? `art/treasures/${TREASURE_ART[t.id]}.webp` : null;
+const trPic = (t, cls = 'tr-img') => { const u = trURL(t); return u && artReady(u) ? `<img class="${cls}" src="${u}" alt="${t.name}">` : t.e; };
+Object.keys(TREASURE_ART).forEach(id => { const t = TREASURE_BY_ID[id], u = trURL(t);
+  const painted = `<svg class="wa painted" viewBox="0 0 100 100" style="width:2.6em;height:2.6em;display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg"><ellipse cx="50" cy="94" rx="30" ry="5" fill="#000" opacity=".2"/><image href="${u}" x="0" y="0" width="100" height="96" preserveAspectRatio="xMidYMax meet"/></svg>`;
+  Object.defineProperty(TOWN_SVG, id, { configurable:true, enumerable:true, get(){ return artReady(u) ? painted : undefined; } }); });
 /* ================= LEGENDARY WEAPONS =================
    Original collectible weapons (shown in the hero's hand instead of the set weapon).
    Found in Gold & Cosmic chests (sometimes Silver), or bought in the Armory › Weapons tab.
@@ -5868,6 +5935,10 @@ const LEGEND_WEAPONS = [
   ['frostwail',  'Frostwail Runeblade', 'legendary', 'runeblade',  {}, 'Glowing ice runes hum softly.'],
   ['stormcaller','Stormcaller Blade',   'legendary', 'stormblade', {}, 'Crackles with friendly lightning.'],
   ['emberfall',  'Emberfall Hammer',    'mythic',    'emberhammer',{}, 'Forged in a dragon volcano.'],
+  ['thornbow',   'Thornwood Bow',       'rare',      'bow',        { wood:'#b45309', hi:'#fcd34d', string:'#fde68a', leaf:'#86efac', grip:'#3f2a14', gem:'#fbbf24' }, 'Wrapped in glowing leaves.'],
+  ['glimmerblade','Glimmerlight Sword', 'rare',      'crystal',    {}, 'Sparkles with starlight.'],
+  ['magmaaxe',   'Magma Maul Axe',      'legendary', 'axe',        {}, 'Hot as a lava river.'],
+  ['dreamstaff', 'Dreamflame Staff',    'legendary', 'staff',      { shaft:'#854d0e', hi:'#fde68a', head:'#f472b6', gem:'#e0f2fe' }, 'Pink and blue magic flames.'],
   ['twinmoon',   'Twin Moon Glaive',    'mythic',    'glaive',     {}, 'Glows green under two moons.'],
   ['starforged', 'Starforged Staff',    'mythic',    'staff',      { shaft:'#312e81', hi:'#c4b5fd', head:'#7c3aed', gem:'#f0abfc', ring:'#67e8f9', star:true }, 'Holds a tiny piece of a star.']
 ].map(([id, name, r, draw, o, blurb], i, all) => {
@@ -5980,6 +6051,7 @@ const MOUNTS = [
   ['frostmane', 'Frostmane Dragon',    'legendary', 'dragon', { fluffy:true, body:'#e0f2fe', belly:'#ffffff', wing:'#93c5fd', wing2:'#60a5fa', horn:'#bfdbfe', eye:'#2563eb', saddle:'#2563eb', trim:'#e0f2fe' }, 'Big, soft, and loves hugs.'],
   ['shadowwing','Shadowwing Drake',    'legendary', 'dragon', { body:'#374151', belly:'#9ca3af', wing:'#1f2937', wing2:'#111827', horn:'#e5e7eb', eye:'#22d3ee', glowEye:true, saddle:'#7c3aed', trim:'#c4b5fd' }, 'Flies faster than the night wind.'],
   ['voidclaw',  'Voidclaw Nightmare',  'mythic',    'dragon', { body:'#4c1d95', belly:'#7c3aed', wing:'#5b21b6', wing2:'#2e1065', horn:'#c4b5fd', claw:'#d946ef', eye:'#f0abfc', glowEye:true, saddle:'#1e1b4b', trim:'#f0abfc' }, 'Its claws glow with purple magic.'],
+  ['runewolf',  'Runewolf',            'rare',      'dragon', { body:'#7c6cf0', belly:'#c7d2fe', wing:'#6366f1', wing2:'#4338ca', horn:'#c4b5fd', eye:'#22d3ee', glowEye:true, saddle:'#7c4a24', trim:'#67e8f9' }, 'Glowing runes light its fur.'],
   ['phoenix',   'Sunburst Phoenix',    'mythic',    'bird',   { fire:true, body:'#facc15', belly:'#fef9c3', wing:'#fb923c', wing2:'#ec4899', line:'#be123c', crest:'#f97316', beak:'#f59e0b', leg:'#b45309', claw:'#fde047', eye:'#9a3412', saddle:'#be123c', trim:'#fde047' }, 'Born from a falling star.']
 ].map(([id, name, r, body, o, blurb]) => ({ id, name, r, body, o, blurb,
   price: { common:null, uncommon:{ cur:'star', amt:60 }, rare:{ cur:'star', amt:150 }, legendary:{ cur:'cosmic', amt:30 }, mythic:{ cur:'cosmic', amt:60 } }[r] }));
@@ -5987,7 +6059,7 @@ const MOUNT_BY_ID = Object.fromEntries(MOUNTS.map(m => [m.id, m]));
 const MOUNT_DROP = { gold:{ p:.05, r:['uncommon','rare'] }, cosmic:{ p:.15, r:['rare','legendary','mythic'], w:[45,42,13] } };
 function mountState(){ K.mounts = K.mounts || {}; if (!K.mounts.puffowl) K.mounts.puffowl = 1; return K.mounts; }
 /* painted mounts (Gemini art, cleaned by Claude): art/mounts/<id>.webp. seat = where the rider's hips go, as a fraction of the 320x260 box. */
-const MOUNT_ART = { puffowl:{ seat:[.60,.45], rider:122 }, buzzwing:{ seat:[.50,.39], rider:112 }, sunroc:{ seat:[.54,.52], rider:122 }, gloomwing:{ seat:[.55,.60], rider:122 }, stormcrow:{ seat:[.56,.45], rider:122 }, phoenix:{ seat:[.53,.45], rider:122 }, frostmane:{ seat:[.54,.46], rider:122 }, shadowwing:{ seat:[.42,.43], rider:122 }, voidclaw:{ seat:[.55,.44], rider:122 } };
+const MOUNT_ART = { puffowl:{ seat:[.60,.45], rider:122 }, buzzwing:{ seat:[.50,.39], rider:112 }, sunroc:{ seat:[.54,.52], rider:122 }, gloomwing:{ seat:[.55,.60], rider:122 }, stormcrow:{ seat:[.56,.45], rider:122 }, phoenix:{ seat:[.53,.45], rider:122 }, frostmane:{ seat:[.54,.46], rider:122 }, shadowwing:{ seat:[.42,.43], rider:122 }, voidclaw:{ seat:[.55,.44], rider:122 }, runewolf:{ seat:[.60,.35], rider:112 } };
 function mountSVG(id, size = 200, withRider = true, flap = true){
   const M = MOUNT_BY_ID[id]; if (!M) return '';
   const pimgHero = withRider && !!avatarImgFor();
@@ -6179,7 +6251,7 @@ function openChest(type, again){
   const ocSize = Math.round(Math.min(340, innerWidth * .62)), chest = el('div',{class:'oc-chest', html: chestSVG(type, ocSize)});
   const reveal = el('div',{class:'oc-reveal hidden', style:`--rc:${R.c}`},
     el('div',{class:'oc-rar'}, R.n.toUpperCase()),
-    el('div',{class:'oc-item'}, t.e),
+    el('div',{class:'oc-item', html: trPic(t, 'tr-img big')}),
     el('h2',{class:'oc-name'}, t.name),
     el('div',{class:'oc-meta'}, el('span',{class:'oc-ilvl'}, 'Item Lv ' + t.ilvl), first ? el('span',{class:'oc-new'}, 'NEW!') : el('span',{class:'oc-dup'}, '×' + K.treasures[t.id])),
     el('p',{class:'oc-bonus'}, `+${CHESTS[type].stars} ⭐` + (CHESTS[type].cosmic ? `  +${CHESTS[type].cosmic} 💫` : '')),
@@ -6217,7 +6289,7 @@ function screenChests(){
       el('h3',{}, el('span',{class:'tr-dot'}), `${RARITY[r].n}`, el('small',{}, ` · Item Lv ${RARITY[r].lv[0]}–${RARITY[r].lv[1]} · ${list.filter(t => K.treasures[t.id]).length}/${list.length}`)),
       el('div',{class:'tr-grid'}, ...list.map(t => { const have = K.treasures[t.id] || 0;
         return el('div',{class:'tr-tile' + (have ? '' : ' off') + ' r-' + r, title: t.name},
-          el('div',{class:'tr-e'}, have ? t.e : '❔'), el('div',{class:'tr-name'}, have ? t.name : '???'),
+          el('div',{class:'tr-e', html: have ? trPic(t) : '❔'}), el('div',{class:'tr-name'}, have ? t.name : '???'),
           el('div',{class:'tr-lv'}, have ? `Lv ${t.ilvl}` + (have > 1 ? ` · ×${have}` : '') : RARITY[r].n)); }))); });
   show(el('div',{class:'screen chest-screen'},
     el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()},'← Back'), el('h1',{class:'title'},'🎁 Treasure Chests'), bal),
@@ -6474,10 +6546,11 @@ function worldStop(){ try { WORLD.sub && WORLD.sub(); } catch(e){} WORLD.sub = n
    live through the docs rq/plaza_son and rq/plaza_daughter. On the GitHub site this works on one iPad
    only, so a wave left for someone not in town waits as a note until they come back. */
 const PZ_HERO = 150;   // hero size in Town Square; painted buildings are ~400px wide, so heroes were too small at 96
-const PZ_W = 1600, PZ_H = 1120, PZ_C = { x:800, y:620 };
+const PZ_S = 1.4;   // the square is 1.4x wider and taller than the painted-plaza base: buildings stay small, so there is room to walk and add things
+const PZ_W = 1600*PZ_S, PZ_H = 1120*PZ_S, PZ_C = { x:800*PZ_S, y:620*PZ_S };
 const PZ_EMOTES = [['👋','Wave'],['✋','High five'],['💃','Dance'],['🎉','Cheer'],['❤️','Hug'],['😂','Silly']];
 const PZ_BUILDINGS = [
-  { id:'townhall', x:800, y:330, w:320, h:200, wall:'#f6ead3', roof:'#c2410c', trim:'#d9b26a', kind:'dome', icon:'🏛️', name:'Town Hall', sub:'Quests & Quest Map', go:() => screenTownHall() },
+  { id:'townhall', x:800, y:445, w:320, h:200, wall:'#f6ead3', roof:'#c2410c', trim:'#d9b26a', kind:'dome', icon:'🏛️', name:'Town Hall', sub:'Quests & Quest Map', go:() => screenTownHall() },
   { id:'library',  x:330, y:400, w:230, h:160, wall:'#f3e3c7', roof:'#2f5fc4', trim:'#c9a46a', kind:'gable', icon:'📖', name:'Library', sub:'Read a story', go:() => screenHome() },
   { id:'shop',     x:1270, y:400, w:230, h:160, wall:'#f6e1e8', roof:'#9333ea', trim:'#d6a6c9', kind:'gable', icon:'🛍️', name:'Shop', sub:'Gear & treats', go:() => screenShop() },
   { id:'armory',   x:210, y:770, w:210, h:155, wall:'#e7ddd0', roof:'#7f1d1d', trim:'#a8a29e', kind:'gable', icon:'🛡️', name:'Armory', sub:'Your armor', go:() => screenArmory() },
@@ -6486,12 +6559,14 @@ const PZ_BUILDINGS = [
   { id:'roost',    x:1080, y:1040, w:200, h:150, wall:'#e8f0e0', roof:'#15803d', trim:'#a3b18a', kind:'gable', icon:'🐾', name:'Pet Roost', sub:'Your collection', go:() => screenCollection() },
   { id:'portal',   x:800, y:1095, w:150, h:150, kind:'portal', icon:'🏗️', name:'My World', sub:'Build!', go:() => screenWorld() }
 ];
+PZ_BUILDINGS.forEach(b => { b.x = Math.round(b.x*PZ_S); b.y = Math.round(b.y*PZ_S); });
 const PZ_NPCS = [
   { id:'owl',   e:'🦉', name:'Mayor Hoot',    x:1000, y:470 },
   { id:'baker', e:'🐰', name:'Baker Bun',     x:560,  y:560 },
   { id:'keeper', e:'🧞', name:'Treasure Keeper', x:1170, y:600 },
   { id:'well',  e:'⛲', name:'Wishing Fountain', x:PZ_C.x, y:PZ_C.y, hidden:true }
 ];
+PZ_NPCS.forEach(n => { if (n.id !== 'well'){ n.x = Math.round(n.x*PZ_S); n.y = Math.round(n.y*PZ_S); } });
 const PZ_WORDS = {
   son: ['the','and','look','jump','play','said','come','here','little','where','funny','yellow','down','help','make','away'],
   daughter: ['because','through','friend','enormous','courage','whisper','mystery','discover','treasure','ancient','journey','brilliant','curious','dangerous','imagine','together']
@@ -6673,7 +6748,7 @@ function pzPowerFx(world, id, x, y, left){
 function screenTownSquare(){
   if (!K.hero) return screenHeroCreate(screenTownSquare);
   pzSubscribe(); PZM.mode = null;
-  PZ.pos = Object.assign({ x:760, y:760 }, K.plazaPos || {});
+  PZ.pos = Object.assign({ x:760*PZ_S, y:760*PZ_S }, K.plazaPos || {});
   const world = el('div',{class:'plaza-world', html: pzSceneSVG()});
   const view = el('div',{class:'plaza-view'});
   const zz = zoomable({ view, content: world, W: PZ_W, H: PZ_H, start: (() => { const cover = Math.min(1.2, Math.max((innerHeight - 170) / PZ_H, (innerWidth - 40) / PZ_W)); return PZ.z ? Math.max(PZ.z, cover) : cover; })(), max: 2.2, onZoom: z => { PZ.z = z; } });
@@ -6681,9 +6756,9 @@ function screenTownSquare(){
   const actor = (node, name, cls) => el('div',{class:'plaza-actor ' + (cls || '')}, el('div',{class:'pz-tag'}, name), node);
   const me = actor(pzHeroFor(kid, PZ_HERO), kidName(), 'me' + (isDev() ? ' wizard' : ''));
   world.append(me);
-  world.append(todLayer('plaza', [[640,554,60],[960,554,60],[800,364,60],[800,754,60],[470,454,60],[1130,454,60],[470,794,60],[1130,794,60],[PZ_C.x, PZ_C.y - 100, 90]]
+  world.append(todLayer('plaza', [[640,554,60],[960,554,60],[800,364,60],[800,754,60],[470,454,60],[1130,454,60],[470,794,60],[1130,794,60]].map(([a,b,c]) => [a*PZ_S,b*PZ_S,c]).concat([[PZ_C.x, PZ_C.y - 100, 90]])
     .concat(PZ_BUILDINGS.map(b => [b.x, b.y - 40, 110]))
-    .concat([[90,260],[1510,260],[110,1090],[1490,1090],[300,1110],[1300,1110],[560,180],[1040,180]].map(([x, y]) => [x, y - 30, 70]))));
+    .concat([[90,260],[1510,260],[110,1090],[1490,1090],[300,1110],[1300,1110],[560,180],[1040,180]].map(([x, y]) => [x*PZ_S, y*PZ_S - 30, 70]))));
   const put = (n, x, y, w = PZ_HERO) => { n.style.left = (x - w/2) + 'px'; n.style.top = (y - w*1.25 - 30) + 'px'; n.style.zIndex = Math.round(y); };
   const bubble = (n, text, big) => { n.querySelectorAll('.pz-bubble').forEach(b => b.remove()); const b = el('div',{class:'pz-bubble' + (big ? ' big' : '')}, text); n.append(b); setTimeout(() => b.remove(), 2600); };
   const camera = (x, y, smooth = true) => view.scrollTo({ left: x*zz.z - view.clientWidth/2, top: y*zz.z - view.clientHeight/2, behavior: smooth ? 'smooth' : 'auto' });
@@ -6691,8 +6766,8 @@ function screenTownSquare(){
 
   // everyone else in town: live if they're here now, otherwise napping at their last spot
   const others = pzOthers();
-  const homeSpot = { son:{ x:900, y:720 }, daughter:{ x:680, y:720 }, dev:{ x:1000, y:520 } };
-  const spotFor = (id, i) => homeSpot[id] || (homeSpot[id] = isWorldId(id) ? { x: 260 + (i * 197) % 1080, y: 640 + ((i * 131) % 380) } : { x: 560 + (i % 4) * 160, y: 860 + Math.floor(i / 4) * 90 });
+  const homeSpot = { son:{ x:900*PZ_S, y:720*PZ_S }, daughter:{ x:680*PZ_S, y:720*PZ_S }, dev:{ x:1000*PZ_S, y:520*PZ_S } };
+  const spotFor = (id, i) => homeSpot[id] || (homeSpot[id] = isWorldId(id) ? { x: (260 + (i * 197) % 1080)*PZ_S, y: (640 + ((i * 131) % 380))*PZ_S } : { x: (560 + (i % 4) * 160)*PZ_S, y: (860 + Math.floor(i / 4) * 90)*PZ_S });
   others.forEach((id, i) => spotFor(id, i));
   const P = {};
   const addOther = (k, i) => {
@@ -6736,8 +6811,8 @@ function screenTownSquare(){
   const walkTo = (x, y, then) => {
     x = Math.max(50, Math.min(PZ_W - 50, x)); y = Math.max(150, Math.min(PZ_H - 20, y));
     const fly = PZM.mode === 'sky', tp = PZM.mode === 'blink';
-    const dc = Math.hypot(x - PZ_C.x, y - PZ_C.y); if (dc < 84 && !fly){ const f = 84 / (dc || 1); x = PZ_C.x + (x - PZ_C.x)*f; y = PZ_C.y + (y - PZ_C.y)*f + (dc ? 0 : 84); }
-    const d = Math.hypot(x - PZ.pos.x, y - PZ.pos.y), running = !fly && !tp && d > 420, dur = tp ? .01 : Math.max(.2, d / (fly ? 640 : running ? 430 : 260)), id = ++walkId;
+    const dc = Math.hypot(x - PZ_C.x, y - PZ_C.y); if (dc < 84*PZ_S && !fly){ const f = 84*PZ_S / (dc || 1); x = PZ_C.x + (x - PZ_C.x)*f; y = PZ_C.y + (y - PZ_C.y)*f + (dc ? 0 : 84*PZ_S); }
+    const d = Math.hypot(x - PZ.pos.x, y - PZ.pos.y), running = !fly && !tp && d > 480, dur = tp ? .01 : Math.max(.2, d / (fly ? 640 : running ? 480 : 300)), id = ++walkId;
     me.classList.toggle('run', running);
     if (tp){ pzPowerFx(world, 'blink', PZ.pos.x, PZ.pos.y); pzPowerFx(world, 'blink', x, y); me.classList.remove('blink-in'); void me.offsetWidth; me.classList.add('blink-in'); beep('star'); }
     me.style.transitionDuration = dur + 's';
@@ -6764,7 +6839,7 @@ function screenTownSquare(){
     if (!st || Math.hypot(e.clientX - st.x, e.clientY - st.y) > 12 || Date.now() - st.t > 800) return;
     if (e.target.closest('.plaza-actor, .pz-npc')) return;
     const g = e.target.closest('[data-b]');
-    if (g && g.dataset.b === 'well') return walkTo(PZ_C.x, PZ_C.y + 96, wish);
+    if (g && g.dataset.b === 'well') return walkTo(PZ_C.x, PZ_C.y + 96*PZ_S, wish);
     if (g){ const b = PZ_BUILDINGS.find(x => x.id === g.dataset.b); beep('tap');
       return walkTo(b.x, b.y + 30, () => { say(b.name + '. ' + b.sub); pop(el('div',{class:'pz-pop-e'}, b.icon), el('b',{}, b.name), el('small',{}, b.sub), el('button',{class:'btn small', onclick:() => leave(b.go)}, 'Go in ▶')); }); }
     const r = world.getBoundingClientRect(); walkTo((e.clientX - r.left) / zz.z, (e.clientY - r.top) / zz.z + 10);
@@ -6832,7 +6907,7 @@ function screenTownSquare(){
   const bar = el('div',{class:'pz-bar'}, el('span',{class:'pz-bar-l'},'Say hi:'), ...PZ_EMOTES.map(([em, label]) => el('button',{class:'pz-em', title:label, onclick:() => emote(em, label)}, em)));
 
   // a little life: critters wander
-  const critters = ['🐈','🐓','🦆','🐿️','🦋'].map((c, i) => { const n = el('div',{class:'pz-critter'}, c); n._x = 300 + i*260; n._y = 560 + (i % 2)*300; n.style.left = n._x + 'px'; n.style.top = n._y + 'px'; world.append(n); return n; });
+  const critters = ['🐈','🐓','🦆','🐿️','🦋'].map((c, i) => { const n = el('div',{class:'pz-critter'}, c); n._x = (300 + i*260)*PZ_S; n._y = (560 + (i % 2)*300)*PZ_S; n.style.left = n._x + 'px'; n.style.top = n._y + 'px'; world.append(n); return n; });
   const wander = () => { if (!document.body.contains(world)) return; const n = pick(critters); const nx = Math.max(60, Math.min(PZ_W-60, n._x + (Math.random()-.5)*260)), ny = Math.max(200, Math.min(PZ_H-60, n._y + (Math.random()-.5)*160));
     n.classList.toggle('flip', nx > n._x); n._x = nx; n._y = ny; n.style.left = nx + 'px'; n.style.top = ny + 'px'; n.style.zIndex = Math.round(ny); setTimeout(wander, 1400 + Math.random()*1600); };
   setTimeout(wander, 800);
@@ -8136,6 +8211,51 @@ function wizardWardrobe(grid){
     el('button',{class:'armory-item', onclick:()=>screenWandShop()}, el('div',{class:'ai-pic', style:'font-size:44px'}, '🏪'), el('div',{class:'ai-name'}, 'Wandwright'), el('div',{class:'ai-sub'}, 'New woods & cores')));
 }
 
+
+/* ---------- Relics: rings, amulets and gauntlets (painted art in art/relics/). Bought with stars, one of each kind worn ---------- */
+const RELICS = [
+  { id:'ring_amethyst', kind:'ring', name:'Amethyst Bloom Ring', cost:40 },
+  { id:'ring_sapphire', kind:'ring', name:'Sapphire Swirl Ring', cost:50 },
+  { id:'ring_ruby',     kind:'ring', name:'Dragon Ruby Ring', cost:70 },
+  { id:'ring_emerald',  kind:'ring', name:'Twin Dragon Ring', cost:70 },
+  { id:'ring_sun',      kind:'ring', name:'Sunburst Ring', cost:90 },
+  { id:'ring_moon',     kind:'ring', name:'Winged Moonstone Ring', cost:100 },
+  { id:'amu_crystal',   kind:'amulet', name:'Glowing Crystal Amulet', cost:50 },
+  { id:'amu_sun',       kind:'amulet', name:'Sun Medallion', cost:60 },
+  { id:'amu_ruby',      kind:'amulet', name:'Ruby Flame Amulet', cost:80 },
+  { id:'amu_jade',      kind:'amulet', name:'Jade Dragon Charm', cost:80 },
+  { id:'amu_dragon',    kind:'amulet', name:'Dragon Guardian Amulet', cost:110 },
+  { id:'amu_star',      kind:'amulet', name:'Star & Moon Amulet', cost:120 },
+  { id:'gau_violet',    kind:'gauntlet', name:'Violet Gem Gauntlets', cost:130 },
+  { id:'gau_ember',     kind:'gauntlet', name:'Ember Gold Gauntlets', cost:150 },
+  { id:'gau_thorn',     kind:'gauntlet', name:'Thornclaw Gauntlets', cost:170 }
+];
+const RELIC_KIND = { ring:['💍','Rings'], amulet:['📿','Amulets'], gauntlet:['🧤','Gauntlets'] };
+function relicState(){ K.relics = Object.assign({ own:[], on:{} }, K.relics || {}); return K.relics; }
+const relicImg = (r, cls = '') => `<img class="relic-img ${cls}" src="${(window.RELIC_IMG || {})[r.id] || `art/relics/${r.id}.webp`}" alt="${r.name}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${RELIC_KIND[r.kind][0]}',style:'font-size:46px'}))">`;
+function relicsGrid(grid){
+  const R = relicState();
+  Object.keys(RELIC_KIND).forEach(kind => {
+    grid.append(el('h3',{class:'ww-h'}, RELIC_KIND[kind][0] + ' ' + RELIC_KIND[kind][1]));
+    RELICS.filter(r => r.kind === kind).forEach(r => {
+      const owned = R.own.includes(r.id), on = R.on[kind] === r.id;
+      grid.append(el('button',{class:'armory-item relic' + (owned ? '' : ' locked') + (on ? ' on' : ''), onclick: async () => {
+          if (!owned){
+            if (balance() < r.cost){ say(`You need ${r.cost} stars. Keep reading!`); return; }
+            const ok = await modal(el('div',{class:'center'}, el('div',{html: relicImg(r, 'big')}), el('h2',{}, r.name + '?'), el('p',{}, r.cost + ' ⭐')), [['Buy','',1],['Not now','gray',0]]); if (!ok) return;
+            K.spent = (K.spent || 0) + r.cost; R.own.push(r.id); beep('star');
+          }
+          R.on[kind] = on ? null : r.id; save(); beep('tap'); screenArmory(); }},
+        el('div',{class:'ai-pic', html: relicImg(r)}), el('div',{class:'ai-name'}, r.name),
+        el('div',{class:'ai-sub'}, owned ? (on ? '✓ Wearing (tap to remove)' : 'Tap to wear') : r.cost + ' ⭐')));
+    });
+  });
+}
+function relicBadges(){
+  const R = relicState(), worn = RELICS.filter(r => R.on[r.kind] === r.id);
+  return worn.length ? el('div',{class:'relic-worn'}, ...worn.map(r => el('div',{class:'relic-chip', html: relicImg(r), title:r.name}))) : null;
+}
+
 /* ---------- hooks into the existing game ---------- */
 const _screenHomeW = screenHome;
 screenHome = function(msg){
@@ -8149,6 +8269,7 @@ screenHome = function(msg){
 PZ_BUILDINGS.push(
   { id:'hall',  x:420,  y:650, w:170, h:150, wall:'#e7e0f0', roof:'#4c1d95', trim:'#c4b5fd', kind:'tower', icon:'🏰', name:'Great Hall', sub:'Houses & owl mail', go:() => screenGreatHall() },
   { id:'wands', x:1130, y:780, w:170, h:130, wall:'#efe6f7', roof:'#6d28d9', trim:'#fbbf24', kind:'gable', icon:'🪄', name:'Wandwright', sub:'Wands', go:() => screenWandShop() });
+PZ_BUILDINGS.filter(b => b.id === 'hall' || b.id === 'wands').forEach(b => { b.x = Math.round(b.x*PZ_S); b.y = Math.round(b.y*PZ_S); });
 
 /* ======================= EXPERT QUESTIONS (Gia from Rank 5) =======================
    Harder than Challenge: who-said-it, order of 4 events, spot the exact sentence (changed details),
@@ -8470,7 +8591,90 @@ function truesightTap(p, i){
   return true;
 }
 
-if (navigator.webdriver) window.__sb = { expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, fairOpts: (...a) => fairOpts(...a), quizPool: (...a) => quizPool(...a), finishQuiz: (...a) => finishQuiz(...a), QTYPE: q => QTYPE(q), getDB: () => DB, GEAR_SETS, GEAR_SLOTS, bossArt, BOSSES, screenTownSquare: () => screenTownSquare(), screenWorld: () => screenWorld(), screenStables: () => screenStables(), screenChests: () => screenChests(), weaponIcon: (i, s) => weaponIcon(i, s) };
+
+/* ======================= WORKBOOK: Kumon-style practice that gets harder as they win ======================= */
+function wbState(){
+  if (!K.wb) K.wb = { lvl: TK === 'daughter' ? 4 : (K.level >= 7 ? 4 : K.level >= 4 ? 3 : 2), seen: [], hist: [], sets: 0, stars: 0 };
+  return K.wb;
+}
+function screenWorkbook(){
+  stopAll();
+  if (!window.WB) return screenHome('Workbook is not ready yet. Refresh the page.');
+  const W = wbState(), lv = W.lvl, last = W.hist[W.hist.length - 1];
+  const setLvl = d => { W.lvl = Math.max(1, Math.min(WB.MAX_LEVEL, W.lvl + d)); save(); screenWorkbook(); };
+  show(el('div',{class:'screen v2'},
+    el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()}, '← Back'), el('div',{class:'pageinfo'}, '📓 Workbook'), el('div',{style:'width:80px'})),
+    el('div',{class:'card v2-intro'},
+      el('div',{class:'v2-big-e'}, WB.LEVEL_ICONS[lv]),
+      el('h1',{class:'title'}, 'Workbook · Level ' + lv),
+      el('p',{}, el('b',{}, WB.LEVEL_NAMES[lv]), ' · ' + W.sets + (W.sets === 1 ? ' set' : ' sets') + ' done · ' + W.stars + ' ⭐ earned here'),
+      el('p',{class:'muted'}, '10 quick questions. Get 8 right to move up a level. Every right answer on the first try earns a ⭐.'),
+      last ? el('p',{class:'muted'}, 'Last set: ' + last.score + ' / ' + last.n + ' at Level ' + last.lvl) : null,
+      el('button',{class:'btn big', onclick:()=>{ beep('tap'); wbPlay(); }}, '▶ Start'),
+      el('div',{class:'row center', style:'margin-top:14px;gap:8px'},
+        el('span',{class:'muted'}, 'Grown-ups:'),
+        el('button',{class:'btn small gray', disabled: lv <= 1 ? true : null, onclick:()=>setLvl(-1)}, '⬇ Easier'),
+        el('button',{class:'btn small gray', disabled: lv >= WB.MAX_LEVEL ? true : null, onclick:()=>setLvl(1)}, '⬆ Harder')))));
+}
+function wbPlay(){
+  const W = wbState(), lvl = W.lvl, items = WB.session(lvl, W.seen, 10);
+  let i = 0, right = 0, earned = 0;
+  const finish = () => {
+    const n = items.length, bonus = right === n ? 5 : right >= 8 ? 3 : 0;
+    earned += bonus; K.stars += earned; W.stars += earned; W.sets++;
+    let msg = '', nl = lvl;
+    if (right >= 8 && lvl < WB.MAX_LEVEL){ nl = lvl + 1; msg = '🎉 Level up! ' + WB.LEVEL_ICONS[nl] + ' ' + WB.LEVEL_NAMES[nl]; }
+    else if (right >= 8) msg = '👑 Top level and still crushing it!';
+    else if (right <= 4 && lvl > 1){ nl = lvl - 1; msg = 'Let’s practice a little easier ones next. You will get there!'; }
+    else msg = 'Good work! One more set to move up.';
+    W.lvl = nl; W.hist.push({ d: todayStr(), lvl, score: right, n }); if (W.hist.length > 30) W.hist.shift();
+    save(); confetti(right >= 8 ? 90 : 30); beep(right >= 8 ? 'level' : 'ok');
+    show(el('div',{class:'screen v2 center'}, el('div',{class:'card v2-intro'},
+      el('div',{class:'v2-big-e'}, right >= 8 ? '🏆' : '⭐'),
+      el('h1',{class:'title'}, right + ' / ' + n + ' right'),
+      el('p',{}, '+' + earned + ' ⭐' + (bonus ? ' (includes a +' + bonus + ' bonus)' : '')),
+      el('p',{class:'big-msg'}, msg),
+      el('button',{class:'btn big', onclick:()=>wbPlay()}, 'Next set ▶'),
+      el('button',{class:'btn gray', onclick:()=>screenWorkbook()}, 'Workbook home'),
+      el('button',{class:'btn gray', onclick:()=>screenHome()}, 'Home'))));
+  };
+  const step = () => {
+    if (i >= items.length) return finish();
+    const it = items[i]; let tries = 0, locked = false;
+    W.seen.push(it.id); if (W.seen.length > 80) W.seen.splice(0, W.seen.length - 80);
+    const fb = el('div',{class:'v2-fb'});
+    const nextBtn = el('button',{class:'btn big hidden', onclick:()=>{ i++; step(); }}, i < items.length - 1 ? 'Next ▶' : 'Finish ✓');
+    const box = el('div',{class:'v2-opts' + (it.options.every(o => String(o).length <= 3) ? ' big' : '')});
+    it.options.forEach((op, idx) => {
+      const b = el('button',{class:'v2-opt', 'data-ok': navigator.webdriver && idx === it.answer ? '1' : null}, el('span',{class:'v2-opt-t'}, op));
+      b.onclick = () => {
+        if (locked) return; tries++;
+        if (idx === it.answer){
+          locked = true; b.classList.add('right'); beep('ok');
+          if (tries === 1){ right++; earned++; }
+          fb.innerHTML = '✨ ' + v2Esc(tries === 1 ? CURR_PRAISE() : 'You figured it out!') + ' <span class="muted">' + v2Esc(it.explain || '') + '</span>';
+          nextBtn.classList.remove('hidden');
+        } else if (tries >= 2){
+          locked = true; b.classList.add('wrong'); [...box.children][it.answer].classList.add('right'); beep('no');
+          fb.innerHTML = '💡 ' + v2Esc(it.explain || ''); nextBtn.classList.remove('hidden');
+        } else { b.classList.add('wrong'); b.disabled = true; beep('no'); fb.innerHTML = '💡 Not quite. Look again and try one more time!'; }
+      };
+      box.append(b);
+    });
+    const hear = it.say ? el('button',{class:'btn small blue', onclick:()=>say(it.say, { rate: TK === 'son' ? 0.8 : 0.9 })}, '🔊 Read it to me') : null;
+    show(el('div',{class:'screen v2'},
+      el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>{ stopAll(); save(); screenWorkbook(); }}, '← Back'),
+        el('div',{class:'pageinfo'}, 'Workbook ' + WB.LEVEL_ICONS[lvl] + ' L' + lvl + ' · ' + (i + 1) + ' / ' + items.length), el('div',{style:'width:80px'})),
+      el('div',{class:'v2-steps'}, ...items.map((_, j) => el('span',{class:'v2-dot' + (j < i ? ' on' : j === i ? ' cur' : '')}))),
+      el('div',{class:'card v2-item'},
+        el('div',{class:'v2-prompt'}, it.prompt),
+        it.show ? el('div',{class:'v2-show wb-show' + (it.show.length < 22 && !it.show.includes('\n') ? ' wb-big' : '')}, it.show) : null,
+        el('div',{class:'row center'}, hear), box, fb, nextBtn)));
+  };
+  step();
+}
+
+if (navigator.webdriver) window.__sb = { expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, fairOpts: (...a) => fairOpts(...a), quizPool: (...a) => quizPool(...a), finishQuiz: (...a) => finishQuiz(...a), QTYPE: q => QTYPE(q), getDB: () => DB, GEAR_SETS, GEAR_SLOTS, bossArt, BOSSES, screenChests: () => screenChests(), run: (n, ...a) => ({ screenReport, screenTower, screenBuild, screenListen, screenPlayers, screenHome, screenArmory, screenShop: typeof screenShop === "function" ? screenShop : null, screenWorkbook, wbPlay }[n])(...a), screenTrophies: () => screenTrophies(), openChest: t => openChest(t), screenTownSquare: () => screenTownSquare(), screenWorld: () => screenWorld(), screenStables: () => screenStables(), screenChests: () => screenChests(), weaponIcon: (i, s) => weaponIcon(i, s) };
 mountEpicBg(); setInterval(mountEpicBg, 10 * 60 * 1000);
 if (navigator.webdriver) window.__landing = () => screenFamilyLogin();
 /* ======================= STORYBORNE 2.0: adaptive curriculum UI =======================
@@ -9329,7 +9533,7 @@ screenParent = function(which){
    art/world/<id>.webp   My World items (buildings, nature, rides, animals, holiday, legendary)
    art/plaza/<id>.webp   Town Square buildings (townhall, library, shop, armory, heroes, trophy, roost, portal)
    art/weapons/<id>.webp legendary weapons   art/pets/<id>.webp companions   art/mounts/<id>.webp (see MOUNT_ART) */
-const ART = { world:[], plaza:['ground','townhall','library','shop','armory','heroes','trophy','roost','hall','portal','wands'], weapons:['shadowfang','wildwood','tidecrest','moonsilver','ironclad','crystalshard','sunfeather','voidbloom','sunspire','frostwail','stormcaller','emberfall','twinmoon','starforged'], pets:['p_dragon','p_kitty','p_puppy','p_bunny','p_unicorn','p_owl','p_panda','p_robot','p_turtle','p_phoenix'], npc:['owl','baker','keeper'] };
+const ART = { world:[], plaza:['ground','townhall','library','shop','armory','heroes','trophy','roost','hall','portal','wands'], weapons:['shadowfang','wildwood','tidecrest','moonsilver','ironclad','crystalshard','sunfeather','voidbloom','sunspire','frostwail','stormcaller','emberfall','twinmoon','starforged','glimmerblade','dreamstaff','thornbow','magmaaxe'], pets:['p_dragon','p_kitty','p_puppy','p_bunny','p_unicorn','p_owl','p_panda','p_robot','p_turtle','p_phoenix','p_fox','p_griffin','p_axolotl','p_egg'], npc:['owl','baker','keeper'] };
 const artURL = (kind, id) => `art/${kind}/${id}.webp`;
 const hasArt = (kind, id) => (ART[kind] || []).includes(id) && artReady(kind === 'plaza' && id === 'ground' ? 'art/plaza/ground.webp' : artURL(kind, id));
 ART.world.forEach(id => { TOWN_SVG[id] = `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" class="painted-art"><image href="${artURL('world', id)}" x="0" y="0" width="200" height="200" preserveAspectRatio="xMidYMax meet"/></svg>`; });
@@ -9342,7 +9546,7 @@ ART.pets.forEach(id => { const drawn = PET[id]; PET[id] = (...a) => !artReady(ar
 { const pzBase = pzBuildingSVG;
   pzBuildingSVG = function(b){
     if (!hasArt('plaza', b.id)) return pzBase(b);
-    const W = Math.min(b.w * 1.22, b.id === 'townhall' ? 360 : 290), H = W, ink = '#2a2118';
+    const W = b.id === 'townhall' ? 400 : Math.min(b.w * .8, 175), H = W, ink = '#2a2118';
     return `<g data-b="${b.id}" class="pz-b painted"><ellipse cx="${b.x}" cy="${b.y+4}" rx="${b.w*.6}" ry="18" fill="#000" opacity=".16"/>`
       + `<image href="${artURL('plaza', b.id)}" x="${b.x - W/2}" y="${b.y - H + 10}" width="${W}" height="${H}" preserveAspectRatio="xMidYMax meet"/>`
       + `<rect x="${b.x-90}" y="${b.y+14}" width="180" height="34" rx="10" fill="#fff" stroke="${ink}" stroke-width="3"/><text x="${b.x}" y="${b.y+37}" text-anchor="middle" font-weight="800" font-size="18" fill="${ink}">${b.icon} ${b.name}</text></g>`;
@@ -9489,7 +9693,7 @@ function artReady(url){
     seen[url] = 1;
     const im = new Image();
     im.onload = () => { const was = st[url]; st[url] = 1; artSave(); if (was !== 1) cloudRedraw(); };
-    im.onerror = () => { const was = st[url]; st[url] = -1; artSave(); if (was === 1) cloudRedraw(); };
+    im.onerror = () => { const was = st[url]; st[url] = -1; artSave(); if (was !== -1) cloudRedraw(); };
     im.src = url;
   }
   return st[url] !== -1;
@@ -9505,7 +9709,14 @@ window.addEventListener('error', e => {
 
 /* painted My World backgrounds (art/world/bg_<theme>.webp, 2700x705 = the 1800x470 stage at 1.5x).
    The painting replaces the drawn sky, hills and grass; sunset/night tint it like the drawn sky does. */
-const WORLD_BG_ART = ['meadow','beach','snow','candy','lava','space','night','castle','dino','under'];
+SCENE_PAL.dreamcastle = Object.assign({}, SCENE_PAL.night, { sky:['#3b1d7a','#e879f9'], far:'#6d28d9', mid:'#7c3aed', midHi:'#a78bfa', cap:'#f5d0fe', hill:'#2f2a6b', hill2:'#241f55', tree:'#6d28d9', tree2:'#4c1d95', water:['#c084fc','#6d28d9'] });
+SCENE_PAL.icepalace = Object.assign({}, SCENE_PAL.snow, { sky:['#0b3b4f','#1e3a8a'], far:'#3b6aa8', mid:'#5a8bc4', midHi:'#9cc3ea', cap:'#e0f2fe', hill:'#dbeafe', hill2:'#bfdbfe', tree:'#2f6f5e', tree2:'#1f4f43', water:['#7dd3fc','#0e7490'] });
+SCENE_PAL.aurora = Object.assign({}, SCENE_PAL.snow, { sky:['#064e3b','#312e81'], far:'#3b6aa8', mid:'#5a8bc4', midHi:'#9cc3ea', cap:'#e0f2fe', hill:'#dbeafe', hill2:'#bfdbfe', tree:'#2f6f5e', tree2:'#1f4f43', water:['#7dd3fc','#0e7490'] });
+SCENE_PAL.reef = Object.assign({}, SCENE_PAL.under || SCENE_PAL.night, { sky:['#0891b2','#164e63'], far:'#0e7490', mid:'#0891b2', midHi:'#67e8f9', cap:'#cffafe', hill:'#155e75', hill2:'#134e4a', tree:'#db2777', tree2:'#9d174d', water:['#22d3ee','#0e7490'] });
+SCENE_PAL.glowwood = Object.assign({}, SCENE_PAL.night, { sky:['#0f3d3e','#134e4a'], far:'#115e59', mid:'#166534', midHi:'#4ade80', cap:'#bbf7d0', hill:'#14532d', hill2:'#052e16', tree:'#15803d', tree2:'#14532d', water:['#5eead4','#0f766e'] });
+SCENE_PAL.ember = Object.assign({}, SCENE_PAL.lava || SCENE_PAL.night, { sky:['#450a0a','#c2410c'], far:'#7c2d12', mid:'#9a3412', midHi:'#fb923c', cap:'#fed7aa', hill:'#431407', hill2:'#2a0c04', tree:'#7c2d12', tree2:'#431407', water:['#fb923c','#9a3412'] });
+SCENE_PAL.skyisles = Object.assign({}, SCENE_PAL.castle || SCENE_PAL.night, { sky:['#a78bfa','#fbcfe8'], far:'#a78bfa', mid:'#7c9a6a', midHi:'#bbf7d0', cap:'#ffffff', hill:'#4d7c0f', hill2:'#365314', tree:'#4d7c0f', tree2:'#365314', water:['#a5f3fc','#38bdf8'] });
+const WORLD_BG_ART = ['aurora','reef','glowwood','ember','skyisles','meadow','beach','snow','candy','lava','space','night','castle','dino','under','dreamcastle','icepalace'];
 function worldBgArt(themeId){ const u = `art/world/bg_${themeId}.webp`; return WORLD_BG_ART.includes(themeId) && artReady(u) ? u : null; }
 { const sceneBase = sceneSVG, grassBase = frontGrassSVG;
   sceneSVG = function(themeId){

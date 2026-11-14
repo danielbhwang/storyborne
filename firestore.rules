@@ -1,9 +1,20 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Each family's own saves: only that family can read or write.
+    // The app's creator (verified email only) can read every family's progress for the Creator dashboard.
+    function isCreator() {
+      return request.auth != null
+        && request.auth.token.email == 'danielbhwang@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+    // Each family's own saves: only that family can read or write. The creator can read.
     match /families/{uid}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if isCreator();
+    }
+    // Creator dashboard reads every family's "rq" documents in one query.
+    match /{path=**}/rq/{docId} {
+      allow read: if isCreator();
     }
     // Big World: one small public card per hero. Any signed-in family can see it,
     // but only the family that owns it can create, change or delete it.
