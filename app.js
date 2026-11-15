@@ -2625,9 +2625,9 @@ async function commitResults(stars, quiz){
   screenHome([levelMsg, bookMsg].filter(Boolean).join(' ') || null);
 }
 
-/* painted dragons: art/dragons/<file>.webp, emoji until the file loads (or if there is none yet) */
-const DRAGON_ART = { Cinder:'cinder', Mistral:'mistral', Granite:'granite', Gale:'gale', Frostwing:'frostwing', Volt:'volt', Lunara:'lunara', Solace:'solace', Thistle:'thistle', Gemscale:'gemscale', Magmor:'magmor', Tidecrest:'tidecrest', Blossom:'blossom', Stardust:'stardust', 'Ember-Leaf':'emberleaf', Prism:'prism', Nimbus:'nimbus', Cosmo:'cosmo', Shade:'shade', Lyric:'lyric', Starfire:'starfire', Aurora:'aurora', Diamondheart:'diamondheart', Cometwing:'cometwing', Celestia:'celestia' };
-const dragonPic = (e, n, cls = 'dr-img') => { const u = DRAGON_ART[n] && `art/dragons/${DRAGON_ART[n]}.webp`; return u && artReady(u) ? `<img class="${cls}" src="${u}" alt="${n}">` : e; };
+/* painted dragons: <file>.webp, emoji until the file loads (or if there is none yet) */
+const DRAGON_ART = { Cinder:'cinder', Mistral:'mistral', Granite:'granite', Gale:'gale', Frostwing:'frostwing', Volt:'volt', Lunara:'lunara', Solace:'solace', Thistle:'thistle', Gemscale:'gemscale', Magmor:'magmor', Tidecrest:'dragon_tidecrest', Blossom:'dragon_blossom', Stardust:'stardust', 'Ember-Leaf':'emberleaf', Prism:'prism', Nimbus:'nimbus', Cosmo:'cosmo', Shade:'shade', Lyric:'lyric', Starfire:'starfire', Aurora:'aurora', Diamondheart:'diamondheart', Cometwing:'cometwing', Celestia:'celestia' };
+const dragonPic = (e, n, cls = 'dr-img') => { const u = DRAGON_ART[n] && `${DRAGON_ART[n]}.webp`; return u && artReady(u) ? `<img class="${cls}" src="${u}" alt="${n}">` : e; };
 function legendaryAt(level){ return T.rewards.find(r => r[3] === level); }
 async function giveReward(){
   const list = T.rewards;
@@ -3022,7 +3022,7 @@ const BADGES = [
   ['legend1','✨','Legend Hunter','Own a legendary or mythic item', k => (k.legendOwned||[]).length + (k.mythics||[]).length >= 1]
 ];
 const BADGE_ART = { b_dragon:'badge_dragonslayer', b_book:'badge_bookmaster', b_star:'badge_starreader', b_forest:'badge_forest', b_ice:'badge_champion', b_scholar:'badge_scholar' };
-const badgePic = (id, e) => BADGE_ART[id] && artReady(`art/treasures/${BADGE_ART[id]}.webp`) ? `<img class="badge-img" src="art/treasures/${BADGE_ART[id]}.webp" alt="">` : e;
+const badgePic = (id, e) => BADGE_ART[id] && artReady(`${BADGE_ART[id]}.webp`) ? `<img class="badge-img" src="${BADGE_ART[id]}.webp" alt="">` : e;
 const normalSessions = k => k.sessions.filter(s => s.mode === 'normal');
 async function checkBadges(){
   for (const [id, e, name, desc, test] of BADGES){
@@ -3739,7 +3739,7 @@ async function maybeStarfallChest(){
   const left = MYTHICS.filter(m => !(K.mythics || []).includes(m.id));
   await new Promise(res => {
     const ov = el('div',{class:'epic-overlay epic-mythic'}, el('div',{class:'epic-rays'}),
-      el('div',{class:'epic-card'}, el('div',{class:'epic-tier'},'🌠 STARFALL CHEST 🌠'), el('div',{class:'chest-shake', html: artReady('art/chests/starfall.webp') ? `<img src="art/chests/starfall.webp" alt="Starfall Chest" style="width:min(70vw,300px);height:auto;filter:drop-shadow(0 0 24px rgba(160,180,255,.7))">` : CHEST_SVG}),
+      el('div',{class:'epic-card'}, el('div',{class:'epic-tier'},'🌠 STARFALL CHEST 🌠'), el('div',{class:'chest-shake', html: artReady('starfall.webp') ? `<img src="starfall.webp" alt="Starfall Chest" style="width:min(70vw,300px);height:auto;filter:drop-shadow(0 0 24px rgba(160,180,255,.7))">` : CHEST_SVG}),
         el('h2',{class:'epic-title'},'A Starfall Chest fell from the sky!'), el('p',{class:'epic-sub'},'Super rare! Tap to open it.'),
         el('button',{class:'btn big', onclick:()=>{ ov.remove(); res(); }},'🗝️ Open it!')));
     document.body.append(ov); beep('level'); confetti(60); say('Whoa! A Starfall Chest fell from the sky!');
@@ -4793,7 +4793,7 @@ let bossSeq = 0;
 const BOSS_ART = ['son_1', 'son_2', 'son_3', 'son_4', 'son_5', 'son_6', 'son_7', 'son_8', 'son_9', 'son_10', 'son_11', 'son_12', 'daughter_1', 'daughter_2', 'daughter_3', 'daughter_4', 'daughter_5', 'daughter_6', 'daughter_7', 'daughter_8', 'daughter_9', 'daughter_10', 'daughter_11', 'daughter_12'];
 function bossArt(B, size = 160, track){
   const tk = track || TK, lv = Object.keys(BOSSES[tk] || {}).find(k => BOSSES[tk][k] === B);
-  const pb = `art/bosses/${tk}_${lv}.webp`;
+  const pb = `${tk}_${lv}.webp`;
   if (BOSS_ART.includes(`${tk}_${lv}`) && artReady(pb)){ const u0 = 'bp' + (++bossSeq);
     return `<svg viewBox="0 -28 240 268" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg" class="boss-svg painted"><defs><radialGradient id="${u0}"><stop offset="0" stop-color="${B.color}" stop-opacity=".7"/><stop offset=".6" stop-color="${B.color}" stop-opacity=".22"/><stop offset="1" stop-color="${B.color}" stop-opacity="0"/></radialGradient></defs><circle cx="120" cy="118" r="120" fill="url(#${u0})"/><g class="boss-body"><image href="${pb}" x="-6" y="-24" width="252" height="252" preserveAspectRatio="xMidYMax meet"/></g></svg>`; }
   const L = Object.assign({ body:'brute', f:[], skin:B.color, belly:'#fde68a', eye:'#fde047', mane:'#1f2937' }, (BOSS_LOOKS[tk] || {})[lv] || {});
@@ -5443,7 +5443,7 @@ function avatarHas(who, t){ return (AVATAR_IMAGES[who] || []).includes(t) || (av
   if (/^file:/.test(location.href) && !navigator.webdriver) return;
   ['gia','miles'].forEach(who => { for (let t = 0; t <= 12; t++){ if (avatarHas(who, t)) continue;
     const im = new Image(); im.onload = () => { (avatarFound[who] = avatarFound[who] || []).push(t); try { localStorage.setItem('sb_heroImgs', JSON.stringify(avatarFound)); } catch(e){} };
-    im.src = `heroes/${who}_t${t}.png?v=${(document.querySelector('script[src*="app.js"]') || {}).src?.split('v=')[1] || ''}`; } });
+    im.src = `${who}_t${t}.png?v=${(document.querySelector('script[src*="app.js"]') || {}).src?.split('v=')[1] || ''}`; } });
 })();
 // the painted image to show for this hero: the equipped chest tier, or the nearest lower tier that has a picture
 function avatarImgFor(override = {}){
@@ -5457,8 +5457,8 @@ function avatarImgFor(override = {}){
   const G = heroState(), eq = Object.assign({}, G.eq, override.eq || {}), ch = eq.chest && SET_BY_ID[eq.chest];
   const tier = ch ? Math.min(12, ch.tier) : 0;
   let pic = null;
-  for (let t = tier; t >= 0 && !pic; t--) if (avatarHas(base, t)) pic = `heroes/${base}_t${t}.png`;
-  for (let t = tier + 1; t <= 12 && !pic; t++) if (avatarHas(base, t)) pic = `heroes/${base}_t${t}.png`;   // no picture at or below yet: lowest one above
+  for (let t = tier; t >= 0 && !pic; t--) if (avatarHas(base, t)) pic = `${base}_t${t}.png`;
+  for (let t = tier + 1; t <= 12 && !pic; t++) if (avatarHas(base, t)) pic = `${base}_t${t}.png`;   // no picture at or below yet: lowest one above
   return pic && artReady(pic) ? tintedHero(pic, tint) : null;
 }
 // Living portrait: the painted PNG breathes, sways, glows and sheds sparkles (SMIL, so it runs on old iPads and isn't killed by lowfx). Small thumbnails stay still.
@@ -5843,9 +5843,9 @@ const TREASURES = [
 const TREASURE_BY_ID = Object.fromEntries(TREASURES.map(t => [t.id, t]));
 TREASURES.forEach(t => { const row = ['treasure', t.id, t.e, t.name, 0]; WORLD_ITEMS.push(row); WORLD_BY_ID[t.id] = row; });
 WORLD_CATS.treasure = '🎁 Treasures';
-/* painted treasures: art/treasures/<name>.webp (falls back to the emoji until the file loads) */
-const TREASURE_ART = { tr_lantern:'lantern', tr_crystal:'orb', tr_amber:'butterfly', tr_compass:'compass', tr_book:'book', tr_amethyst:'amethyst', tr_treehouse:'home_treehouse', tr_shield:'shield', tr_cloak:'cloak', tr_frost:'power_frost', tr_fire:'power_fire', tr_crystalcastle:'home_crystalcastle', tr_portal:'power_portal', tr_skypalace:'home_skypalace', tr_cottage:'home_cottage' };
-const trURL = t => TREASURE_ART[t.id] ? `art/treasures/${TREASURE_ART[t.id]}.webp` : null;
+/* painted treasures: <name>.webp (falls back to the emoji until the file loads) */
+const TREASURE_ART = { tr_lantern:'lantern', tr_crystal:'orb', tr_amber:'tr_butterfly', tr_compass:'compass', tr_book:'book', tr_amethyst:'amethyst', tr_treehouse:'home_treehouse', tr_shield:'shield', tr_cloak:'cloak', tr_frost:'power_frost', tr_fire:'power_fire', tr_crystalcastle:'home_crystalcastle', tr_portal:'power_portal', tr_skypalace:'home_skypalace', tr_cottage:'home_cottage' };
+const trURL = t => TREASURE_ART[t.id] ? `${TREASURE_ART[t.id]}.webp` : null;
 const trPic = (t, cls = 'tr-img') => { const u = trURL(t); return u && artReady(u) ? `<img class="${cls}" src="${u}" alt="${t.name}">` : t.e; };
 Object.keys(TREASURE_ART).forEach(id => { const t = TREASURE_BY_ID[id], u = trURL(t);
   const painted = `<svg class="wa painted" viewBox="0 0 100 100" style="width:2.6em;height:2.6em;display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg"><ellipse cx="50" cy="94" rx="30" ry="5" fill="#000" opacity=".2"/><image href="${u}" x="0" y="0" width="100" height="96" preserveAspectRatio="xMidYMax meet"/></svg>`;
@@ -6058,20 +6058,20 @@ const MOUNTS = [
 const MOUNT_BY_ID = Object.fromEntries(MOUNTS.map(m => [m.id, m]));
 const MOUNT_DROP = { gold:{ p:.05, r:['uncommon','rare'] }, cosmic:{ p:.15, r:['rare','legendary','mythic'], w:[45,42,13] } };
 function mountState(){ K.mounts = K.mounts || {}; if (!K.mounts.puffowl) K.mounts.puffowl = 1; return K.mounts; }
-/* painted mounts (Gemini art, cleaned by Claude): art/mounts/<id>.webp. seat = where the rider's hips go, as a fraction of the 320x260 box. */
+/* painted mounts (Gemini art, cleaned by Claude): <id>.webp. seat = where the rider's hips go, as a fraction of the 320x260 box. */
 const MOUNT_ART = { puffowl:{ seat:[.60,.45], rider:122 }, buzzwing:{ seat:[.50,.39], rider:112 }, sunroc:{ seat:[.54,.52], rider:122 }, gloomwing:{ seat:[.55,.60], rider:122 }, stormcrow:{ seat:[.56,.45], rider:122 }, phoenix:{ seat:[.53,.45], rider:122 }, frostmane:{ seat:[.54,.46], rider:122 }, shadowwing:{ seat:[.42,.43], rider:122 }, voidclaw:{ seat:[.55,.44], rider:122 }, runewolf:{ seat:[.60,.35], rider:112 } };
 function mountSVG(id, size = 200, withRider = true, flap = true){
   const M = MOUNT_BY_ID[id]; if (!M) return '';
   const pimgHero = withRider && !!avatarImgFor();
-  if (MOUNT_ART[id] && artReady(`art/mounts/${id}.webp`)){
+  if (MOUNT_ART[id] && artReady(`${id}.webp`)){
     const A = MOUNT_ART[id], sx = A.seat[0] * 320, sy = A.seat[1] * 260;
     let rider = '';
     if (withRider){ const hw = A.rider || 112, hh = hw * 1.25, cid = 'rc' + (++heroSeq), wst = pimgHero ? .47 : HERO_WAIST, clp = pimgHero ? .16 : HERO_CLIP;
       const cutY = sy + hh*clp, fadeH = hh * .14;   // soft fade instead of a hard line, so the rider sinks into the saddle
       rider = `<defs><linearGradient id="${cid}g" gradientUnits="userSpaceOnUse" x1="0" y1="${cutY - fadeH}" x2="0" y2="${cutY}"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>`
         + `<mask id="${cid}" maskUnits="userSpaceOnUse" x="0" y="-200" width="320" height="${cutY + 200}"><rect x="0" y="-200" width="320" height="${cutY - fadeH + 200}" fill="#fff"/><rect x="0" y="${cutY - fadeH}" width="320" height="${fadeH}" fill="url(#${cid}g)"/></mask></defs><g mask="url(#${cid})">` + heroSVG(hw).replace('<svg ', `<svg x="${sx - hw/2}" y="${sy - hh*wst}" `) + '</g>'; }
-    const pic = `<image href="art/mounts/${id}.webp" x="0" y="0" width="320" height="260" preserveAspectRatio="xMidYMid meet"/>`;
-    return `<svg viewBox="0 0 320 260" width="${size}" height="${size*260/320}" xmlns="http://www.w3.org/2000/svg" class="mount-svg painted${flap ? ' flap' : ''} m-${M.r}" style="overflow:visible"><g class="m-bob">${pic}${rider}${A.front ? `<image href="art/mounts/${id}_front.webp" x="0" y="0" width="320" height="260" preserveAspectRatio="xMidYMid meet"/>` : ''}</g></svg>`;
+    const pic = `<image href="${id}.webp" x="0" y="0" width="320" height="260" preserveAspectRatio="xMidYMid meet"/>`;
+    return `<svg viewBox="0 0 320 260" width="${size}" height="${size*260/320}" xmlns="http://www.w3.org/2000/svg" class="mount-svg painted${flap ? ' flap' : ''} m-${M.r}" style="overflow:visible"><g class="m-bob">${pic}${rider}${A.front ? `<image href="${id}_front.webp" x="0" y="0" width="320" height="260" preserveAspectRatio="xMidYMid meet"/>` : ''}</g></svg>`;
   }
   // a painted hero on a flat cartoon mount clashes: until this mount is painted, show the hero on their own
   if (pimgHero) return heroSVG(Math.round(size * .5));
@@ -6268,7 +6268,7 @@ function openChest(type, again){
   const ov = el('div',{class:'oc-overlay' + (big ? ' big' : '') + ' r-' + t.r, style:`--rc:${R.c}`}, el('div',{class:'oc-rays'}), chest, reveal);
   document.body.append(ov);
   beep('tap');
-  setTimeout(() => { if (CHEST_OPEN_ART.includes(type) && artReady(`art/chests/${type}_open.webp`)){ chest.innerHTML = chestSVG(type, ocSize, true); beep('star'); } }, 520);   // lid bursts open
+  setTimeout(() => { if (CHEST_OPEN_ART.includes(type) && artReady(`${type}_open.webp`)){ chest.innerHTML = chestSVG(type, ocSize, true); beep('star'); } }, 520);   // lid bursts open
   setTimeout(() => { chest.classList.add('pop'); beep('star'); }, 900);
   setTimeout(() => { chest.remove(); reveal.classList.remove('hidden'); confetti(big ? 140 : t.r === 'rare' ? 60 : 25); if (big){ beep('level'); burst(t.r === 'mythic' ? 'MYTHIC!' : 'LEGENDARY!'); } say(`${R.n}! ${t.name}!` + (lw ? ` And a weapon! ${lw.name}!` : '') + (mt ? ` And a flying mount! ${mt.name}!` : '')); if ((lw || mt) && !big) confetti(80); }, 1300);
 }
@@ -7450,12 +7450,12 @@ function titleSceneSVG(night, noHeroes){
   ${titlePaintedLayer(night)}
 </svg>`;
 }
-/* painted title vista (art/title/day.webp, night.webp when it exists) drawn over the old scene; if it fails to load,
+/* painted title vista (day.webp, night.webp when it exists) drawn over the old scene; if it fails to load,
    the error listener hides it and the drawn scene underneath shows. Gia and Miles stand in the foreground. */
-function titlePainted(){ artReady('art/title/day.webp'); return (artReady.st || {})['art/title/day.webp'] !== -1; }
+function titlePainted(){ artReady('day.webp'); return (artReady.st || {})['day.webp'] !== -1; }
 function titlePaintedLayer(night){
   if (!titlePainted()) return '';
-  const src = `art/title/${night && artReady('art/title/night.webp') ? 'night' : 'day'}.webp`;
+  const src = `${night && artReady('night.webp') ? 'night' : 'day'}.webp`;
   const isNight = src.endsWith('night.webp');
   const [top, top2, bot, bot2] = isNight ? ['#071a4a','#0b2c75','#091c28','#050f17'] : ['#3d7fd8','#72a8ed','#3d461d','#262c12'];
   let s = `<defs><linearGradient id="tpSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${top}"/><stop offset=".84" stop-color="${top2}"/><stop offset="1" stop-color="${top2}"/></linearGradient>`
@@ -8212,7 +8212,7 @@ function wizardWardrobe(grid){
 }
 
 
-/* ---------- Relics: rings, amulets and gauntlets (painted art in art/relics/). Bought with stars, one of each kind worn ---------- */
+/* ---------- Relics: rings, amulets and gauntlets (painted art in ). Bought with stars, one of each kind worn ---------- */
 const RELICS = [
   { id:'ring_amethyst', kind:'ring', name:'Amethyst Bloom Ring', cost:40 },
   { id:'ring_sapphire', kind:'ring', name:'Sapphire Swirl Ring', cost:50 },
@@ -8232,7 +8232,7 @@ const RELICS = [
 ];
 const RELIC_KIND = { ring:['💍','Rings'], amulet:['📿','Amulets'], gauntlet:['🧤','Gauntlets'] };
 function relicState(){ K.relics = Object.assign({ own:[], on:{} }, K.relics || {}); return K.relics; }
-const relicImg = (r, cls = '') => `<img class="relic-img ${cls}" src="${(window.RELIC_IMG || {})[r.id] || `art/relics/${r.id}.webp`}" alt="${r.name}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${RELIC_KIND[r.kind][0]}',style:'font-size:46px'}))">`;
+const relicImg = (r, cls = '') => `<img class="relic-img ${cls}" src="${(window.RELIC_IMG || {})[r.id] || `${r.id}.webp`}" alt="${r.name}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${RELIC_KIND[r.kind][0]}',style:'font-size:46px'}))">`;
 function relicsGrid(grid){
   const R = relicState();
   Object.keys(RELIC_KIND).forEach(kind => {
@@ -9183,7 +9183,7 @@ function qpScene(G){
     <linearGradient id="qpgold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fef08a"/><stop offset=".6" stop-color="#facc15"/><stop offset="1" stop-color="#eab308"/></linearGradient>
     <linearGradient id="qpblue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#93c5fd"/><stop offset="1" stop-color="#3b82f6"/></linearGradient>
     <linearGradient id="qpgrey" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e2e8f0"/><stop offset="1" stop-color="#94a3b8"/></linearGradient></defs>`;
-  if (artReady('art/quest/bg.webp')) s += `<image href="art/quest/bg.webp" x="0" y="0" width="1024" height="640" preserveAspectRatio="xMidYMid slice"/>`;
+  if (artReady('bg.webp')) s += `<image href="bg.webp" x="0" y="0" width="1024" height="640" preserveAspectRatio="xMidYMid slice"/>`;
   else {
   s += `<rect width="1024" height="640" fill="url(#qpsky)"/><path d="M0 230 L130 140 L250 220 L380 120 L520 220 L660 140 L820 230 L950 150 L1024 200 V640 H0Z" fill="${G ? '#7c3aed' : '#60a5fa'}" opacity=".32"/>`;
   s += `<path d="M0 290 Q240 220 500 270 T1024 250 V640 H0Z" fill="${G ? '#4ade80' : '#86efac'}"/>`;
@@ -9530,12 +9530,13 @@ screenParent = function(which){
 };
 
 /* ===== Painted art (Gemini pictures cleaned by Claude). One manifest per kind; ids not listed keep their drawn art. =====
-   art/world/<id>.webp   My World items (buildings, nature, rides, animals, holiday, legendary)
-   art/plaza/<id>.webp   Town Square buildings (townhall, library, shop, armory, heroes, trophy, roost, portal)
-   art/weapons/<id>.webp legendary weapons   art/pets/<id>.webp companions   art/mounts/<id>.webp (see MOUNT_ART) */
+   <id>.webp   My World items (buildings, nature, rides, animals, holiday, legendary)
+   <id>.webp   Town Square buildings (townhall, library, shop, armory, heroes, trophy, roost, portal)
+   <id>.webp legendary weapons   <id>.webp companions   <id>.webp (see MOUNT_ART) */
 const ART = { world:[], plaza:['ground','townhall','library','shop','armory','heroes','trophy','roost','hall','portal','wands'], weapons:['shadowfang','wildwood','tidecrest','moonsilver','ironclad','crystalshard','sunfeather','voidbloom','sunspire','frostwail','stormcaller','emberfall','twinmoon','starforged','glimmerblade','dreamstaff','thornbow','magmaaxe'], pets:['p_dragon','p_kitty','p_puppy','p_bunny','p_unicorn','p_owl','p_panda','p_robot','p_turtle','p_phoenix','p_fox','p_griffin','p_axolotl','p_egg'], npc:['owl','baker','keeper'] };
-const artURL = (kind, id) => `art/${kind}/${id}.webp`;
-const hasArt = (kind, id) => (ART[kind] || []).includes(id) && artReady(kind === 'plaza' && id === 'ground' ? 'art/plaza/ground.webp' : artURL(kind, id));
+const FLATREN = { 'plaza/townhall':'plaza_townhall', 'plaza/trophy':'plaza_trophy', 'weapons/tidecrest':'weapon_tidecrest' };   // same file name in two folders: the repo is flat, so one of each pair is renamed
+const artURL = (kind, id) => `${FLATREN[kind + '/' + id] || id}.webp`;
+const hasArt = (kind, id) => (ART[kind] || []).includes(id) && artReady(kind === 'plaza' && id === 'ground' ? 'ground.webp' : artURL(kind, id));
 ART.world.forEach(id => { TOWN_SVG[id] = `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" class="painted-art"><image href="${artURL('world', id)}" x="0" y="0" width="200" height="200" preserveAspectRatio="xMidYMax meet"/></svg>`; });
 ART.pets.forEach(id => { const drawn = PET[id]; PET[id] = (...a) => !artReady(artURL('pets', id)) && drawn ? drawn(...a) : `<g class="petbob"><ellipse cx="34" cy="214" rx="18" ry="4" fill="#000" opacity=".15"/><image href="${artURL('pets', id)}" x="6" y="160" width="56" height="56" preserveAspectRatio="xMidYMax meet"/></g>`; });
 { const lwBase = legendWeaponSVG;
@@ -9552,7 +9553,7 @@ ART.pets.forEach(id => { const drawn = PET[id]; PET[id] = (...a) => !artReady(ar
       + `<rect x="${b.x-90}" y="${b.y+14}" width="180" height="34" rx="10" fill="#fff" stroke="${ink}" stroke-width="3"/><text x="${b.x}" y="${b.y+37}" text-anchor="middle" font-weight="800" font-size="18" fill="${ink}">${b.icon} ${b.name}</text></g>`;
   }; }
 
-/* painted armor piece icons: art/gear/<set>_<slot>.webp. The weapon slot shows the staff for Gia and the sword for Miles. */
+/* painted armor piece icons: <set>_<slot>.webp. The weapon slot shows the staff for Gia and the sword for Miles. */
 const GEAR_ALL = ['helmet','shoulders','chest','gloves','belt','pants','boots','sword','staff'];
 const GEAR_ART = Object.fromEntries(['traveler','squire','ember','frost','storm'].map(id => [id, GEAR_ALL]));
 ['jade','shadow','starforge','celestial','tempest','phoenix','glacier','dragonlord'].forEach(id => GEAR_ART[id] = GEAR_ALL);   // staffs from the 8-staff sheet
@@ -9562,10 +9563,10 @@ function gearArtFor(setId, slot){
   return have.includes(s) && artReady(artURL('gear', `${setId}_${s}`)) ? artURL('gear', `${setId}_${s}`) : null;
 }
 
-/* painted Town Square ground (art/plaza/ground.webp, 1600x1120 box): replaces the drawn grass, paths, flower beds,
+/* painted Town Square ground (ground.webp, 1600x1120 box): replaces the drawn grass, paths, flower beds,
    cottages and trees. The fountain is part of the painting; an invisible circle keeps it tappable. */
 function pzPaintedScene(s, C){
-  s += `<image href="art/plaza/ground.webp" x="0" y="0" width="${PZ_W}" height="${PZ_H}" preserveAspectRatio="xMidYMid slice"/>`;
+  s += `<image href="ground.webp" x="0" y="0" width="${PZ_W}" height="${PZ_H}" preserveAspectRatio="xMidYMid slice"/>`;
   s += `<g data-b="well" class="pz-b"><circle cx="${C.x}" cy="${C.y}" r="90" fill="#fff" opacity="0"/></g>`;
   PZ_BUILDINGS.forEach(b => s += pzBuildingSVG(b));
   return s + '</svg>';
@@ -9574,7 +9575,7 @@ function pzPaintedScene(s, C){
 /* painted reading buddies: reuse the painted pets where they match, own art for koala and ninja */
 function buddyArt(base){   // a function declaration so it works before this line runs (buddies draw during startup)
   const p = { bunny:'pets/p_bunny', dragon:'pets/p_dragon', robot:'pets/p_robot', puppy:'pets/p_puppy', kitten:'pets/p_kitty', koala:'buddies/koala', ninja:'buddies/ninja' }[base];
-  return p && artReady(`art/${p}.webp`) ? `art/${p}.webp` : null; }
+  const f = p && p.split('/').pop() + '.webp'; return f && artReady(f) ? f : null; }
 /* sets that came with a shield: Miles sees it next to his sword in the weapon slot */
 function gearShieldFor(setId, slot){ return slot === 'weapon' && heroKidKey() !== 'daughter' && ['starforge','celestial','tempest','phoenix','glacier','dragonlord'].includes(setId) && artReady(artURL('gear', `${setId}_shield`)) ? artURL('gear', `${setId}_shield`) : null; }
 
@@ -9687,7 +9688,7 @@ function makeTint(pic, info, t){
    missing on the website) the old drawing shows, so the game never shows broken-image boxes. Results are remembered on
    the device so the next visit paints straight away, and are re-checked every session. */
 function artReady(url){
-  const st = artReady.st || (artReady.st = (() => { try { return JSON.parse(localStorage.getItem('sb_artOK') || '{}'); } catch(e){ return {}; } })());
+  const st = artReady.st || (artReady.st = (() => { try { return JSON.parse(localStorage.getItem('sb_artOK_' + APP_VERSION) || '{}'); } catch(e){ return {}; } })());
   const seen = artReady.seen || (artReady.seen = {});
   if (!seen[url]){
     seen[url] = 1;
@@ -9698,7 +9699,7 @@ function artReady(url){
   }
   return st[url] !== -1;
 }
-function artSave(){ clearTimeout(artSave.t); artSave.t = setTimeout(() => { try { localStorage.setItem('sb_artOK', JSON.stringify(artReady.st)); } catch(e){} }, 300); }
+function artSave(){ clearTimeout(artSave.t); artSave.t = setTimeout(() => { try { localStorage.setItem('sb_artOK_' + APP_VERSION, JSON.stringify(artReady.st)); } catch(e){} }, 300); }
 // last line of defence: hide any painted picture that still fails to load
 window.addEventListener('error', e => {
   const t = e.target, src = t && t.getAttribute && (t.getAttribute('href') || t.getAttribute('src') || '');
@@ -9707,7 +9708,7 @@ window.addEventListener('error', e => {
 
 // no bulk preload: each picture loads only when a screen shows it (artReady assumes it exists; a failed load falls back)
 
-/* painted My World backgrounds (art/world/bg_<theme>.webp, 2700x705 = the 1800x470 stage at 1.5x).
+/* painted My World backgrounds (bg_<theme>.webp, 2700x705 = the 1800x470 stage at 1.5x).
    The painting replaces the drawn sky, hills and grass; sunset/night tint it like the drawn sky does. */
 SCENE_PAL.dreamcastle = Object.assign({}, SCENE_PAL.night, { sky:['#3b1d7a','#e879f9'], far:'#6d28d9', mid:'#7c3aed', midHi:'#a78bfa', cap:'#f5d0fe', hill:'#2f2a6b', hill2:'#241f55', tree:'#6d28d9', tree2:'#4c1d95', water:['#c084fc','#6d28d9'] });
 SCENE_PAL.icepalace = Object.assign({}, SCENE_PAL.snow, { sky:['#0b3b4f','#1e3a8a'], far:'#3b6aa8', mid:'#5a8bc4', midHi:'#9cc3ea', cap:'#e0f2fe', hill:'#dbeafe', hill2:'#bfdbfe', tree:'#2f6f5e', tree2:'#1f4f43', water:['#7dd3fc','#0e7490'] });
@@ -9717,7 +9718,7 @@ SCENE_PAL.glowwood = Object.assign({}, SCENE_PAL.night, { sky:['#0f3d3e','#134e4
 SCENE_PAL.ember = Object.assign({}, SCENE_PAL.lava || SCENE_PAL.night, { sky:['#450a0a','#c2410c'], far:'#7c2d12', mid:'#9a3412', midHi:'#fb923c', cap:'#fed7aa', hill:'#431407', hill2:'#2a0c04', tree:'#7c2d12', tree2:'#431407', water:['#fb923c','#9a3412'] });
 SCENE_PAL.skyisles = Object.assign({}, SCENE_PAL.castle || SCENE_PAL.night, { sky:['#a78bfa','#fbcfe8'], far:'#a78bfa', mid:'#7c9a6a', midHi:'#bbf7d0', cap:'#ffffff', hill:'#4d7c0f', hill2:'#365314', tree:'#4d7c0f', tree2:'#365314', water:['#a5f3fc','#38bdf8'] });
 const WORLD_BG_ART = ['aurora','reef','glowwood','ember','skyisles','meadow','beach','snow','candy','lava','space','night','castle','dino','under','dreamcastle','icepalace'];
-function worldBgArt(themeId){ const u = `art/world/bg_${themeId}.webp`; return WORLD_BG_ART.includes(themeId) && artReady(u) ? u : null; }
+function worldBgArt(themeId){ const u = `bg_${themeId}.webp`; return WORLD_BG_ART.includes(themeId) && artReady(u) ? u : null; }
 { const sceneBase = sceneSVG, grassBase = frontGrassSVG;
   sceneSVG = function(themeId){
     const u = worldBgArt(themeId); if (!u) return sceneBase(themeId);
@@ -9749,29 +9750,29 @@ setInterval(() => {
   });
 }, 90);
 
-/* painted chests (art/chests/<type>.webp; <type>_open.webp once it exists). Same 120x100 box as the drawn chest. */
+/* painted chests (<type>.webp; <type>_open.webp once it exists). Same 120x100 box as the drawn chest. */
 const CHEST_ART = ['wood','silver','gold','cosmic'], CHEST_OPEN_ART = ['wood','silver','gold','cosmic'];
 { const chestBase = chestSVG;
   chestSVG = function(type, size = 90, open){
     if (open && !CHEST_OPEN_ART.includes(type)) open = false;
-    const u = `art/chests/${type}${open ? '_open' : ''}.webp`;
+    const u = `${type}${open ? '_open' : ''}.webp`;
     if (!CHEST_ART.includes(type) || !artReady(u)) return chestBase(type, size);
     return `<svg viewBox="0 0 120 100" width="${size}" height="${size*100/120}" xmlns="http://www.w3.org/2000/svg" class="chest-painted"><ellipse cx="60" cy="94" rx="46" ry="6" fill="#000" opacity=".22"/><image href="${u}" x="0" y="0" width="120" height="98" preserveAspectRatio="xMidYMax meet"/></svg>`;
   }; }
 
-/* painted My World items (art/world/<id>.webp). Value = height/width of the picture. Same width as the drawn item,
+/* painted My World items (<id>.webp). Value = height/width of the picture. Same width as the drawn item,
    20 percent wider for the painted ground patch. Falls back to the drawn item until the picture loads. */
 const WORLD_ITEM_ART = {"house": 0.976, "garden": 0.893, "hut": 0.805, "tent": 0.727, "school": 0.86, "hq": 0.923, "tower": 1.373, "museum": 0.923, "circus": 0.988, "factory": 1.04, "castle": 1.033, "ufo": 0.737, "tree": 1.349, "pine": 1.484, "palm": 1.317, "blossom": 1.232, "sunflower": 1.392, "tulip": 1.265, "mushroom": 1.361, "rock": 1.122, "mountain": 1.353, "volcano": 1.249, "rainbow": 1.042, "cloud": 1.042, "sun": 1.155, "moon": 1.31, "star": 0.93, "crystal": 1.396, "ball": 1.119, "target": 1.26, "ferris": 1.391, "coaster": 0.972, "carousel": 1.195, "slide": 1.039, "fountain": 0.958, "balloons": 1.515, "campfire": 0.968, "kite": 1.132, "trophy": 1.221, "present": 0.94, "treasure": 0.769, "icecream": 2.29, "cupcake": 1.151, "pizza": 0.687, "rocket": 0.873, "jet": 0.777, "heli": 1.015, "car": 0.797, "racecar": 0.75, "train": 0.88, "ship": 0.963, "sailboat": 1.028, "firetruck": 0.935, "scooter": 0.768, "trex": 0.958, "dino": 0.897, "dragon": 0.857, "unicorn": 1.089, "dolphin": 0.981, "butterfly": 0.787, "bee": 0.962, "ladybug": 0.8, "parrot": 0.883, "lion": 0.95, "penguin": 0.989, "panda": 0.926, "elephant": 0.934, "giraffe": 1.6, "dreamhouse": 0.903, "herocar": 0.657, "townhall": 1.01, "clocktower": 1.671, "skyscraper": 1.784, "apartments": 1.157, "cinema": 1.043, "burger": 1.162, "bakery": 1.12, "sushi": 1.114, "noodles": 1.105, "cafe": 1.122, "candy": 1.081, "tacotruck": 1.085, "stall": 1.085, "market": 1.162, "toystore": 1.131, "bookstore": 1.123, "petshop": 1.127, "hospital": 1.081, "road": 0.716, "crosswalk": 0.772, "lamp": 1.132, "bench": 0.942, "planter": 1.149, "trafficlight": 1.245, "busstop": 1.064, "bus": 0.663, "taxi": 0.723, "scooter2": 0.966, "statue": 1.239};
 Object.keys(WORLD_ITEM_ART).forEach(id => {
-  const drawn = TOWN_SVG[id], m = drawn && drawn.match(/width:([\d.]+)em/), em = (m ? +m[1] : 1.4) * 1.2, u = `art/world/${id}.webp`, h = Math.round(100 * WORLD_ITEM_ART[id]);
+  const drawn = TOWN_SVG[id], m = drawn && drawn.match(/width:([\d.]+)em/), em = (m ? +m[1] : 1.4) * 1.2, u = `${id}.webp`, h = Math.round(100 * WORLD_ITEM_ART[id]);
   const painted = `<svg class="wa painted" viewBox="0 0 100 ${h}" style="width:${em.toFixed(2)}em;height:${(em * WORLD_ITEM_ART[id]).toFixed(2)}em;display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg"><image href="${u}" width="100" height="${h}"/></svg>`;
   Object.defineProperty(TOWN_SVG, id, { configurable:true, enumerable:true, get(){ return artReady(u) ? painted : drawn; } });
 });
 
-/* painted Quest Path stops (art/quest/stop_<read|spell|lab|gate>.webp). States stay readable: done = stars + gold check,
+/* painted Quest Path stops (stop_<read|spell|lab|gate>.webp). States stay readable: done = stars + gold check,
    now = glowing pulse, locked = greyed, bonus = +⭐. */
 function qpPaintedNode(n){
-  const kind = n.kind === 'boss' || n.kind === 'gate' ? 'gate' : n.kind, url = `art/quest/stop_${kind}.webp`;
+  const kind = n.kind === 'boss' || n.kind === 'gate' ? 'gate' : n.kind, url = `stop_${kind}.webp`;
   if (!['read','spell','lab','gate'].includes(kind) || !artReady(url)) return null;
   const done = n.state === 'done', now = n.state === 'now', locked = n.state === 'locked', W = kind === 'gate' ? 92 : 84;
   let s = `<ellipse cx="0" cy="22" rx="${W*.55}" ry="13" fill="#000" opacity=".2"/>`;
