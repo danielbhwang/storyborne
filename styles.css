@@ -2126,3 +2126,68 @@ body.zoom-lock .float-back{ display:none; }
 .v2-item .wb-show{ font-size:clamp(1.15rem, 2.6vw, 1.5rem) !important; line-height:1.55 !important; font-weight:600; max-width:34em; margin-left:auto; margin-right:auto; }
 /* painted items in shop/catalog tiles: give them a real box (width/height:auto collapsed them to 0) */
 .chip-e svg.painted{ width:52px !important; height:46px !important; }
+/* ===== hero strike: weapon leaves the back, slashes forward with a trail, hero lunges ===== */
+.hero-wrap{ position:relative; }
+.hero-wrap.striking .hero-wpn{ opacity:0; }
+.hero-wrap.striking .hero-main{ animation:swLunge .9s ease-out; }
+@keyframes swLunge{ 0%{transform:none} 25%{transform:translateX(-6%) rotate(-3deg)} 42%{transform:translateX(10%) rotate(4deg) scale(1.04)} 100%{transform:none} }
+.sw-fx{ position:absolute; inset:0; pointer-events:none; z-index:5; }
+.sw-wpn, .sw-bolt{ position:absolute; left:66%; top:54%; width:38%; transform-origin:50% 92%; transform:translate(-50%,-92%) rotate(-12deg); opacity:0;
+  filter:drop-shadow(0 0 8px var(--sw)) drop-shadow(0 0 3px #fff); animation:swWpn .9s cubic-bezier(.3,.7,.2,1) forwards; }
+.sw-bolt{ width:12%; aspect-ratio:1/5; border-radius:50%; background:linear-gradient(#fff, var(--sw)); }
+@keyframes swWpn{ 0%{opacity:0; transform:translate(-50%,-92%) rotate(-12deg) scale(.8)} 14%{opacity:1; transform:translate(-50%,-92%) rotate(-12deg) scale(1)}
+  30%{transform:translate(-50%,-92%) rotate(-40deg) scale(1.05)} 46%{transform:translate(-50%,-92%) rotate(118deg) scale(1.12)} 72%{opacity:1; transform:translate(-50%,-92%) rotate(104deg) scale(1.05)} 100%{opacity:0; transform:translate(-50%,-92%) rotate(-12deg) scale(.8)} }
+  30%{transform:translate(-50%,-92%) rotate(-170deg) scale(1.05)} 46%{transform:translate(-50%,-92%) rotate(75deg) scale(1.12)} 70%{opacity:1; transform:translate(-50%,-92%) rotate(60deg) scale(1.05)} 100%{opacity:0; transform:translate(-50%,-92%) rotate(10deg) scale(.7)} }
+.sw-trail{ position:absolute; left:66%; top:54%; width:96%; aspect-ratio:1; transform:translate(-50%,-50%); border-radius:50%; opacity:0;
+  background:conic-gradient(from 300deg, transparent 0deg, var(--sw) 110deg, #fff 172deg, transparent 182deg, transparent 360deg);
+  -webkit-mask:radial-gradient(circle, transparent 38%, #000 40%, #000 49%, transparent 51%); mask:radial-gradient(circle, transparent 38%, #000 40%, #000 49%, transparent 51%);
+  animation:swTrail .9s ease-out forwards; }
+@keyframes swTrail{ 0%,28%{opacity:0; transform:translate(-50%,-50%) rotate(-30deg)} 42%{opacity:1; transform:translate(-50%,-50%) rotate(0deg)} 75%{opacity:0; transform:translate(-50%,-50%) rotate(14deg)} 100%{opacity:0} }
+.sw-flash{ position:absolute; left:92%; top:52%; width:60%; aspect-ratio:1; transform:translate(-50%,-50%) scale(0); border-radius:50%; opacity:0;
+  background:radial-gradient(circle, #fff 0 12%, var(--sw) 30%, transparent 62%); animation:swFlash .9s ease-out forwards; }
+@keyframes swFlash{ 0%,40%{opacity:0; transform:translate(-50%,-50%) scale(.2)} 48%{opacity:1; transform:translate(-50%,-50%) scale(1)} 80%,100%{opacity:0; transform:translate(-50%,-50%) scale(1.5)} }
+.strike-ov{ position:fixed; left:2vw; bottom:4vh; z-index:9000; pointer-events:none; animation:swIn 1.3s ease-out forwards; }
+@keyframes swIn{ 0%{opacity:0; transform:translateX(-60px)} 15%{opacity:1; transform:none} 80%{opacity:1} 100%{opacity:0; transform:translateX(-30px)} }
+.armory-prev{ cursor:pointer; }
+/* strike without a second weapon: Gia's book fires a bolt, Miles's painted sword leaves a slash trail */
+.hero-wrap.striking .hero-wpn{ opacity:1; }
+.sw-fx.blade .sw-trail{ left:38%; top:58%; width:110%; }
+.sw-fx.blade .sw-flash{ left:96%; top:50%; }
+.sw-book{ position:absolute; left:58%; top:44%; width:46%; aspect-ratio:1; transform:translate(-50%,-50%) scale(.3); border-radius:50%; opacity:0;
+  background:radial-gradient(circle, #fff 0 10%, var(--sw) 30%, transparent 65%); animation:swBook .9s ease-out forwards; }
+@keyframes swBook{ 0%{opacity:0; transform:translate(-50%,-50%) scale(.3)} 25%{opacity:1; transform:translate(-50%,-50%) scale(1.1)} 45%{opacity:.8; transform:translate(-50%,-50%) scale(.8)} 100%{opacity:0; transform:translate(-50%,-50%) scale(.4)} }
+.sw-orb{ position:absolute; left:58%; top:44%; width:22%; aspect-ratio:1; border-radius:50%; opacity:0; transform:translate(-50%,-50%);
+  background:radial-gradient(circle, #fff 0 22%, var(--sw) 45%, transparent 70%); box-shadow:0 0 24px 8px var(--sw); animation:swOrb .9s cubic-bezier(.5,0,.8,.6) forwards; }
+@keyframes swOrb{ 0%,22%{opacity:0; transform:translate(-50%,-50%) scale(.4)} 30%{opacity:1; transform:translate(-50%,-50%) scale(1)} 48%{opacity:1; transform:translate(140%,-60%) scale(1.25)} 60%,100%{opacity:0; transform:translate(220%,-70%) scale(1.5)} }
+.sw-fx.mage .sw-flash{ left:104%; top:36%; }
+.sw-fx.blade .sw-trail{ left:30%; top:56%; width:96%; background:conic-gradient(from 195deg, transparent 0deg, var(--sw) 70deg, #fff 135deg, transparent 145deg, transparent 360deg); animation:swTrailB .9s ease-out forwards; }
+@keyframes swTrailB{ 0%,18%{opacity:0; transform:translate(-50%,-50%) rotate(20deg)} 36%{opacity:1; transform:translate(-50%,-50%) rotate(0deg)} 70%{opacity:0; transform:translate(-50%,-50%) rotate(-12deg)} 100%{opacity:0} }
+.sw-fx.blade .sw-flash{ left:6%; top:80%; }
+.hero-wrap.striking .sw-fx.blade ~ .hero-main, .hero-wrap.striking:has(.sw-fx.blade) .hero-main{ animation:swLungeL .9s ease-out; }
+@keyframes swLungeL{ 0%{transform:none} 25%{transform:translateX(5%) rotate(3deg)} 42%{transform:translateX(-8%) rotate(-4deg) scale(1.04)} 100%{transform:none} }
+.sw-fx .sw-trail, .sw-fx .sw-flash, .sw-fx .sw-book, .sw-fx .sw-orb{ height:0 !important; aspect-ratio:auto !important; }
+.sw-fx .sw-trail{ padding-bottom:96%; } .sw-fx.blade .sw-trail{ padding-bottom:96%; }
+.sw-fx .sw-flash{ padding-bottom:60%; } .sw-fx .sw-book{ padding-bottom:46%; } .sw-fx .sw-orb{ padding-bottom:22%; }
+.sw-fx .sw-trail{ -webkit-mask-image:radial-gradient(circle closest-side, transparent 72%, #000 76%, #000 94%, transparent 100%); mask-image:radial-gradient(circle closest-side, transparent 72%, #000 76%, #000 94%, transparent 100%); }
+.sw-fx.blade .sw-trail{ left:26%; top:60%; width:78%; padding-bottom:78%; }
+/* ===== weapon in the hand (paintings with an empty fist) ===== */
+.hand-wpn{ transform-box:view-box; }
+.hand-wpn.front{ opacity:0; }
+.hero-wrap.striking .hand-wpn.back{ opacity:0; }
+.hero-wrap.striking .hand-wpn.front{ opacity:1; animation:handSwing .95s cubic-bezier(.3,.7,.2,1); filter:drop-shadow(0 0 4px var(--sw)) drop-shadow(0 0 2px #fff); }
+@keyframes handSwing{ 0%{transform:rotate(0deg)} 26%{transform:rotate(-32deg)} 48%{transform:rotate(150deg)} 70%{transform:rotate(138deg)} 100%{transform:rotate(0deg)} }
+.sw-fx.hand .sw-trail{ left:var(--hx); top:var(--hy); width:var(--hs); padding-bottom:var(--hs) !important;
+  background:conic-gradient(from 330deg, transparent 0deg, var(--sw) 90deg, #fff 150deg, transparent 158deg, transparent 360deg); animation:swTrailH .95s ease-out forwards; }
+@keyframes swTrailH{ 0%,28%{opacity:0; transform:translate(-50%,-50%) rotate(-20deg)} 46%{opacity:1; transform:translate(-50%,-50%) rotate(0deg)} 74%{opacity:0; transform:translate(-50%,-50%) rotate(10deg)} 100%{opacity:0} }
+.sw-fx.hand .sw-flash{ left:calc(var(--hx) + var(--hs) * .42); top:calc(var(--hy) + var(--hs) * .2); width:calc(var(--hs) * .5); padding-bottom:calc(var(--hs) * .5) !important; }
+.hero-wrap.striking .hand-wpn.static{ opacity:0; }
+.btn.gated{ opacity:.55; filter:grayscale(.4); }
+.hn-ic.painted{ display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.hn-ic .hn-art{ width:118%; height:118%; object-fit:contain; filter:drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+.week-skills{ margin:10px 0; }
+.week-skills h3{ margin:6px 0; }
+.ws-row{ display:grid; grid-template-columns:minmax(150px,1.4fr) 2fr auto auto; gap:10px; align-items:center; padding:4px 0; font-size:15px; }
+.ws-bar{ height:10px; border-radius:6px; background:rgba(0,0,0,.08); overflow:hidden; }
+.ws-bar i{ display:block; height:100%; background:#22c55e; border-radius:6px; }
+.ws-row.mid .ws-bar i{ background:#f59e0b; } .ws-row.bad .ws-bar i{ background:#ef4444; }
+@media (max-width:600px){ .ws-row{ grid-template-columns:1fr auto; } .ws-row .ws-bar, .ws-row .muted{ display:none; } }

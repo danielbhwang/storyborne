@@ -63,7 +63,7 @@ Zip the bunny sees the hat.
 Zip and Biscuit hop and hop.`,
           qs: [
             ['Who is Biscuit?', ['🐱 A cat', '🐶 A dog', '🐟 A fish'], 0],
-            ['What color is the hat?', ['🔴 Red', '🔵 Blue', '🟢 Green'], 0],
+            ['Why do Zip and Biscuit hop?', ['😄 They are having fun', '😢 They are sad', '😴 They are tired'], 0],
             ['Who sees the hat?', ['🐰 Zip', '🐸 A frog', '🐷 A pig'], 0],
             ['How do you think Biscuit feels?', ['😊 Happy', '😢 Sad', '😠 Mad'], 0]
           ] },
@@ -95,7 +95,7 @@ Biscuit and Toasty sit by the tent.
 Toasty helps keep them warm.`,
           qs: [
             ['What is Toasty?', ['🐶 A pup', '🐱 A cat', '🐢 A turtle'], 0],
-            ['What color is his tail?', ['🔴 Red', '🟣 Purple', '⚪ White'], 0],
+            ['What is special about Toasty\'s tail?', ['🔥 It is hot', '❄️ It is cold', '💧 It is wet'], 0],
             ['Where do they sit?', ['⛺ By the tent', '🛁 In the tub', '🏫 At school'], 0],
             ['How does Toasty help?', ['🔥 He keeps them warm', '🎵 He sings', '⛏️ He digs'], 0]
           ] },
@@ -111,7 +111,7 @@ They all nap in a big pile.
 Biscuit is the last one up.`,
           qs: [
             ['Where is Biscuit?', ['☀️ In the sun', '🌧️ In the rain', '❄️ In the snow'], 0],
-            ['What is soft?', ['🟫 The rug', '🪨 A rock', '🪵 A stick'], 0],
+            ['Why do they all nap?', ['😴 The sun is warm and the rug is soft', '🏃 They ran a race', '🌙 It is night'], 0],
             ['What do they all do?', ['😴 Nap', '🏃 Run', '🏊 Swim'], 0],
             ['Who is the last one up?', ['🐱 Biscuit', '🐰 Zip', '🐸 Plip'], 0]
           ] }
@@ -141,7 +141,7 @@ Leafy the plant pal looked in the bush. She found the ball!
 
 Biscuit said, "Thank you, Leafy!"`,
           qs: [
-            ['What color was the ball?', ['🔴 Red', '🟡 Yellow', '🔵 Blue'], 0],
+            ['What happened FIRST?', ['⚽ Biscuit kicked the ball up', '🌿 Leafy looked in the bush', '🙏 Biscuit said thank you'], 0],
             ['Where did the ball go?', ['🌳 Into a bush', '🌊 Into the sea', '🏠 On the roof'], 0],
             ['Who found the ball?', ['🌿 Leafy', '🐰 Zip', '🐶 Toasty'], 0],
             ['What did Biscuit say?', ['🙏 Thank you!', '👋 Goodbye!', '😴 Good night!'], 0]
@@ -188,7 +188,7 @@ Then they put the shell back, so a crab could have a home.`,
           qs: [
             ['Where did they go?', ['🏖️ The beach', '🏔️ The hills', '🏪 The shop'], 0],
             ['What did Plip find?', ['🐚 A shell', '🪙 A coin', '🦀 A crab'], 0],
-            ['What color was the shell?', ['🩷 Pink', '⬛ Black', '🟩 Green'], 0],
+            ['What did Plip hear in the shell?', ['🌊 A splash', '🐦 A bird', '🔔 A bell'], 0],
             ['Why did they put the shell back?', ['🦀 So a crab could have a home', '🗑️ It was dirty', '😴 They were tired'], 0]
           ] },
         { title: 'Chip the Chick', emoji: '🐥',
@@ -205,7 +205,7 @@ Chip hopped onto his hat. Then she slid down to the grass.
             ['Where was Chip stuck?', ['🌳 On a branch', '🕳️ In a hole', '🏠 On a roof'], 0],
             ['Who had a plan?', ['🐱 Biscuit', '🐰 Zip', '🐶 Toasty'], 0],
             ['What did Biscuit stand on?', ['🪵 A stump', '🪜 A ladder', '🛹 A skateboard'], 0],
-            ['What is Chip now?', ['⭐ The newest Pocket Pal', '🦅 A big eagle', '🐟 A fish'], 0]
+            ['How did Biscuit get Chip down?', ['🪵 He stood on a stump and stretched up', '🪜 He used a ladder', '🐰 Zip jumped up'], 0]
           ] },
         { title: 'The Big Storm', emoji: '⛈️',
           text: `Flash! Crash! A big storm came to the park.
@@ -1157,8 +1157,8 @@ Wren ran to the gate. A small gray dragon sat in the grass. "I am Pebble," it sa
           qs: [
             ['Where did Wren live?', ['On a farm', 'In a castle', 'On a boat', 'In a cave'], 0],
             ['What brought the note?', ['A big bird', 'A dragon', 'A cat', 'A wizard'], 0],
-            ['What was the name of the academy?', ['Skyfire Academy', 'Moon School', 'Dragon Hill', 'Stone Tower'], 0],
-            ['What color was Pebble?', ['Gray', 'Red', 'Gold', 'Blue'], 0],
+            ['Why did Wren run to the gate?', ['A dragon was waiting for her', 'The bird was chasing her', 'She was late for dinner', 'She heard thunder'], 0],
+            ['What happened right after the bird came?', ['Wren read a note about a dragon', 'Wren went to sleep', 'Pebble flew away', 'Wren fed the bird'], 0],
             ['How did Wren feel when she met Pebble?', ['Happy', 'Scared', 'Angry', 'Bored'], 0]
           ] },
         { title: "Pebble Can't Fly", emoji: '🪶',
@@ -3063,7 +3063,7 @@ Max sits down. He does not run at Sparko. He holds out a snack. Sparko comes clo
       ['What did Sparko do when it was shy?', ['It hid behind a rock', 'It ran home', 'It went to sleep', 'It cried'], 0],
       ['How did Max get Sparko to come close?', ['He sat down and held out a snack', 'He ran after it', 'He yelled at it', 'He threw his Doke-Pod'], 0],
       ['What does Sparko\'s tail look like?', ['A bolt', 'A leaf', 'A fish', 'A star'], 0],
-      ['Why did the author write this story?', ['To show that being calm and kind helps you make friends', 'To teach how to bake bread', 'To tell facts about cars', 'To show that running fast is best'], 0]
+      ['Why did the author write this story?', ['To show that being calm and kind helps you make friends', 'To show that being fast is the best way to make friends', 'To teach facts about real lightning', 'To show that running fast is best'], 0]
     ] },
   { level: 5, title: 'Embit Is Cold', emoji: '🔥', series: 'dokemon',
     text: `Embit is a fire Dokemon. Embit is a red fox with a flame on its tail.
@@ -3080,7 +3080,7 @@ Then the sun comes out. The flame on Embit's tail gets big and bright. Embit lic
       ['Why did Embit\'s flame get small?', ['The rain hit its tail', 'It was too sleepy', 'It ate too much', 'Sparko took it'], 0],
       ['How did Max help Embit?', ['He put his coat on top of it', 'He gave it ice', 'He put it in the pond', 'He sent it home'], 0],
       ['How did Embit feel at the end?', ['Warm and thankful', 'Mad', 'Still cold', 'Scared'], 0],
-      ['Why did the author write this story?', ['To show that friends help each other when things go wrong', 'To teach about cooking', 'To tell how rain is made', 'To show that foxes are scary'], 0]
+      ['Why did the author write this story?', ['To show that friends help each other when things go wrong', 'To teach about cooking', 'To tell how rain is made', 'To show that rain is good for everyone'], 0]
     ] },
   { level: 6, title: 'Splashy Finds a Home', emoji: '💧', series: 'dokemon',
     text: `Splashy is a water Dokemon. It is a little blue otter. Splashy lives in a pond, but the pond is getting dry. There is not much water left.
@@ -3097,7 +3097,7 @@ Splashy jumps in and swims in a happy circle. "This is the best home!" says Spla
       ['What was the problem at the start?', ['The pond was getting dry', 'Splashy was lost', 'Max was sick', 'Embit was cold'], 0],
       ['Why was the bird bath not a good home?', ['It was too small', 'It was too dirty', 'It was too far', 'It was too cold'], 0],
       ['How did the friends find the lake?', ['They heard a splish, splash sound', 'They saw a map', 'A bird told them', 'Max read a sign'], 0],
-      ['Why do you think the author had them try a few places first?', ['To show that you keep trying until you find what works', 'To make the story boring', 'To show that mud is the best', 'Because the author forgot the lake'], 0]
+      ['Why do you think the author had them try a few places first?', ['To show that you keep trying until you find what works', 'To show that a pond is the only good home', 'To show that mud is the best', 'Because Splashy did not like lakes'], 0]
     ] },
   { level: 6, title: 'The Doke-Race', emoji: '🏁', series: 'dokemon',
     text: `It is race day at the Dokemon Club! Max and his pals line up. Sparko is very fast. Leafo the leaf turtle is very slow.
@@ -3114,7 +3114,7 @@ Everyone cheers. Sparko is a little sad. Then Sparko laughs. "Next time, I will 
       ['Why did Sparko not win?', ['It ran past the turn and ended up in the bushes', 'It fell asleep', 'It was too slow', 'It did not start'], 0],
       ['How did Leafo win?', ['It kept walking and did not stop', 'It ran very fast', 'It took a shortcut', 'Sparko let it win'], 0],
       ['What did Sparko do at the end?', ['Laughed and gave Leafo a high five', 'Went home mad', 'Cried all day', 'Said it was not fair'], 0],
-      ['What lesson does the author want you to learn?', ['Slow and steady can win, and be a good sport', 'Always be the fastest', 'Never race your friends', 'Turtles cannot win races'], 0]
+      ['What lesson does the author want you to learn?', ['Slow and steady can win, and be a good sport', 'Always be the fastest', 'Never race your friends', 'Racing is only fun when you win'], 0]
     ] },
   { level: 7, title: 'Rumble Is Lost', emoji: '🪨', series: 'dokemon',
     text: `Rumble is a rock Dokemon. It looks like a little gray bear made of stone. One morning, Rumble is gone! Max looks all over.
@@ -3133,7 +3133,7 @@ They follow the prints and the rock bits to the top of the hill. There is Rumble
       ['Which TWO clues helped them find Rumble?', ['Paw prints and bits of gray rock', 'A note and a map', 'A song and a bell', 'A hat and a sock'], 0],
       ['Why were there bits of rock on the path?', ['Rumble\'s rocky back drops bits when it climbs', 'Someone broke a wall', 'It rained rocks', 'Sparko threw them'], 0],
       ['Why did Rumble go up the hill?', ['It wanted to see the whole town', 'It was hiding from Max', 'It was scared', 'It wanted food'], 0],
-      ['Why did the author make Max a detective in this story?', ['To show how looking for clues helps you solve a problem', 'To show that detectives are scary', 'To teach how to climb a hill', 'To tell facts about real bears'], 0]
+      ['Why did the author make Max a detective in this story?', ['To show how looking for clues helps you solve a problem', 'To show that finding things is always easy', 'To teach how to climb a hill', 'To tell facts about real bears'], 0]
     ] },
   { level: 7, title: 'Flutterbit Can Not Sleep', emoji: '🦋', series: 'dokemon',
     text: `Flutterbit is a wind Dokemon. It is a little butterfly with rainbow wings. At night, Flutterbit can not sleep. It flaps and flaps.
@@ -3151,8 +3151,8 @@ In the morning, Flutterbit feels great. "Thank you for helping me rest," it says
       ['What is the main idea of the story?', ['The friends help Flutterbit get a good night\'s sleep', 'Flutterbit flies to the moon', 'The owl learns a new song', 'Max goes camping alone'], 0],
       ['What TWO things kept Flutterbit awake?', ['The bright moon and the loud owl', 'Rain and wind', 'A bad dream and a bug', 'Hunger and thirst'], 0],
       ['How did Max block the moonlight?', ['He made a tent out of a leaf', 'He turned off the moon', 'He used a blanket', 'He closed a door'], 0],
-      ['What can you infer about why sleep matters?', ['Rest gives you energy for the next day', 'Sleep makes you hungry', 'You should never sleep', 'Sleep is only for owls'], 0],
-      ['Why did the author write this story?', ['To show that friends can solve problems with good ideas', 'To scare kids about owls', 'To teach how to fly', 'To tell facts about the moon'], 0]
+      ['What can you infer about why sleep matters?', ['Rest gives you energy for the next day', 'Sleep makes you hungry', 'Sleep is only for babies', 'Being awake all night is the most fun'], 0],
+      ['Why did the author write this story?', ['To show that friends can solve problems with good ideas', 'To teach facts about how owls hunt', 'To teach how to fly', 'To tell facts about the moon'], 0]
     ] },
   { level: 8, title: 'The Dokemon Club Show', emoji: '🎪', series: 'dokemon',
     text: `The Dokemon Club is putting on a show for the whole town. Each Dokemon will do a trick.
@@ -3171,7 +3171,7 @@ The town cheers the loudest of the whole night. Leafo grins. "My slow trick was 
       ['Why was Leafo worried at first?', ['It thought it could not do any tricks', 'It was sick', 'It lost its seed', 'It was scared of the town'], 0],
       ['What did Max help Leafo notice?', ['That it was patient and could grow plants', 'That it was the fastest', 'That it could fly', 'That it should skip the show'], 0],
       ['Why did the town cheer the loudest for Leafo?', ['Its patient trick grew a sunflower right in front of them', 'It was the funniest', 'It made the most noise', 'It went first'], 0],
-      ['What message does the author want readers to remember?', ['Everyone has something special they can do', 'Fast tricks are always best', 'Only big Dokemon can be in shows', 'Plants grow in one second'], 0]
+      ['What message does the author want readers to remember?', ['Everyone has something special they can do', 'Fast tricks are always best', 'You should copy what others can do', 'Only the loudest trick can win'], 0]
     ] },
   { level: 8, title: 'The Big Storm Rescue', emoji: '⛈️', series: 'dokemon',
     text: `A big storm blows into town. The wind is strong. The rain is cold. A little kitten is stuck on top of a shed, and the water below is rising.
@@ -3236,7 +3236,7 @@ Max wrote one more line in his Clue Notebook: Always check your pockets. Case cl
     ['Why did Max make a list of where he went?', ['To figure out where he might have lost it', 'To plan a party', 'To practice spelling', 'Because Mom asked him to'], 0],
     ['Which clue helped Max solve the case?', ['He put his clothes in the laundry basket', 'Nora had a new toy', 'The park was muddy', 'Sparko was hungry'], 0],
     ['What does "humming" mean in this story?', ['Making a low, steady sound', 'Singing a song with words', 'Shaking very hard', 'Standing still'], 0],
-    ['What lesson did Max learn?', ['Always check your pockets', 'Never take a bath', 'Washing machines are scary', 'Sparko is a bad helper'], 0]
+    ['What lesson did Max learn?', ['Always check your pockets', 'Always ask Sparko to find things', 'Keep your things in one place', 'Sparko is a bad helper'], 0]
   ] },
 { level: 9, title: 'Footprints in the Park', emoji: '👣', series: 'dokecase', text: `Nora ran up to Max at the park. "Someone dug up all of Mrs. Green's tulips!" she said. "There are holes everywhere."
 
@@ -3492,7 +3492,7 @@ Mr. Chen dried the book carefully and checked it out to Max first. And Leafo, wh
     ['Why did Max ask who comes to the library every day?', ['To think about who might have moved the book', 'To make new friends', 'To plan story time', 'To read the newspaper'], 0],
     ['Where was the book found?', ['Under a plant pot by the window', 'In the story time basket', 'In Mrs. Webb\'s bag', 'On the top shelf'], 0],
     ['What did the wet ring on the cover show?', ['A pot had been sitting on the book', 'Someone spilled juice', 'It rained inside', 'The book was new'], 0],
-    ['Why is it funny that Mr. Chen took the book?', ['He was the librarian who was worried it was missing', 'He hates books', 'He lives in the library', 'He is a Dokemon'], 0]
+    ['Why is it funny that Mr. Chen took the book?', ['He was the librarian who was worried it was missing', 'He hates books', 'He lives in the library', 'He did not like the book'], 0]
   ] },
 { level: 10, title: 'The Birthday Cake Mystery', emoji: '🎂', series: 'dokecase', text: `It was Nora's birthday party. In the middle of the table sat a beautiful cake with pink frosting and seven candles. Nora's dad said, "Nobody touch the cake until we sing!"
 
@@ -3562,7 +3562,7 @@ Flutterbit carried it down in her beak. Captain Rosa cheered and hurried to the 
     ['Which clue was NOT about the thief?', ['The peanut shell', 'The gray feather', 'The claw scratch', 'The open window'], 0],
     ['Why did Max think about an animal that likes shiny things?', ['The key was silver and shiny', 'The crow was singing', 'Captain Rosa told him', 'The window was shiny'], 0],
     ['What does "embarrassed" mean?', ['Feeling a little silly or shy because of something you did', 'Feeling very hungry', 'Feeling brave', 'Feeling sleepy'], 0],
-    ['What is the author\'s purpose in this story?', ['To entertain with a mystery that teaches how clues work together', 'To teach you how to drive a train', 'To tell you to stay away from zoos', 'To sell peanuts'], 0]
+    ['What is the author\'s purpose in this story?', ['To entertain with a mystery that teaches how clues work together', 'To teach you how to drive a train', 'To tell you to stay away from zoos', 'To explain how trains are built'], 0]
   ] },
 { level: 11, title: 'The Lighthouse Light', emoji: '🗼', series: 'dokecase', text: `On the rocky hill above the beach stood an old white lighthouse. Nobody had lived in it for fifty years. But for three nights in a row, people in town saw a light blinking at the very top.
 
@@ -5514,7 +5514,7 @@ const SON_DEEP = {
   'The Case of the Midnight Music': [['"Detectives believe in clues." What does Biscuit mean?', ['Look for real facts instead of scary guesses', 'Ghosts are real', 'Clues are spooky'], 0], ['Why did fact three (no wind, no music) matter most?', ['It proved the wind was causing the sound', 'It proved ghosts were real', 'It proved Plip was singing'], 0], ['How did the friends turn a scary thing into a good thing?', ['They made a real bottle band', 'They broke the bottles', 'They stayed inside'], 0]],
   'The Case of the Lucky Rock': [['What does "retracing your steps" mean?', ['Going back the way you went to find something', 'Walking backward', 'Running very fast'], 0], ['Why was the sand on Toasty\'s paws a clue?', ['It showed he went somewhere he forgot: the sandbox', 'It showed he went to the beach', 'It showed it was windy'], 0], ['What does Biscuit mean by "Clues are everywhere, if you look"?', ['Small things around you can solve a mystery', 'Clues are hidden in rocks', 'Only detectives can find clues'], 0]],
   'The Case of the Painted Fence': [['Why did Biscuit say the squirrel "wasn\'t trying to ruin anything"?', ['It stepped in paint by accident', 'It wanted to help paint', 'It was mad at Leafy'], 0], ['How did Leafy turn a bad thing into a good thing?', ['She turned the prints into flowers', 'She painted over everything', 'She chased the squirrel away'], 0], ['What is the lesson?', ['Don\'t stay mad at accidents; make something good from them', 'Never paint fences', 'Squirrels are mean'], 0]],
-  'The Missing Doke-Pod': [['Why did Max make a list of where he went?', ['To figure out where he could have left it', 'To show his mom', 'To practice writing'], 0], ['What lesson did Max write down?', ['Always check your pockets', 'Never take a bath', 'Washing machines are bad'], 0]],
+  'The Missing Doke-Pod': [['Why did Max make a list of where he went?', ['To figure out where he could have left it', 'To show his mom', 'To practice writing'], 0], ['What lesson did Max write down?', ['Always check your pockets', 'Always ask Sparko to find things', 'Washing machines are bad'], 0]],
   'Footprints in the Park': [['Why would a squirrel dig up tulip bulbs?', ['Bulbs look like nuts, so it thought they were food', 'It hated tulips', 'It wanted to plant them'], 0], ['Why did they put a net over the flower bed?', ['To stop the problem from happening again', 'To catch the squirrel', 'To keep the sun out'], 0]],
   'Who Took the Blue Ribbon?': [['Why did Nora say a blue bush was "tricky"?', ['Something blue would blend in and be hard to see', 'The bush was a trick', 'Blue bushes are poisonous'], 0], ['The goat won "funniest pet." What does that show about Mr. Pike?', ['He has a good sense of humor about mistakes', 'He was angry at the goat', 'He did not like the other pets'], 0]],
   'The Squeaky Door': [['Why did Max pull his blanket higher "anyway"?', ['He felt a little scared even though he didn\'t believe in ghosts', 'He was cold', 'He wanted to sleep'], 0], ['Max says "You could just ask for a snack." What lesson is he teaching?', ['It is better to ask than to sneak', 'Never eat crackers', 'Ghosts are hungry'], 0], ['Why does Max call them "clue traps," not mean traps?', ['They catch information, not hurt anyone', 'They catch ghosts', 'They are for mice'], 0]],

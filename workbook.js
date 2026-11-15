@@ -313,9 +313,12 @@ function one(kind, level, seen){
     default: return passItem(level, seen);
   }
 }
-function session(level, seenIds, n){
+function session(level, seenIds, n, boost){
   level = Math.max(1, Math.min(8, level | 0 || 1)); n = n || 10;
-  const seen = new Set(seenIds || []), kinds = kindsFor(level), out = [], ids = new Set();
+  // boost = drill kinds the reader needs (from their quiz mistakes): each one is added twice more to the mix, if it exists at this level
+  const base = kindsFor(level), avail = new Set(base.concat(level >= 3 ? ['whfind','tf','order','cloze','pass'] : ['cloze','wh']));
+  const kinds = base.concat(...(boost || []).filter(k => avail.has(k)).map(k => [k, k]));
+  const seen = new Set(seenIds || []), out = [], ids = new Set();
   // a shuffled deck of the level's mix, so each set really follows it (mostly passages from level 3 up)
   let deck = [], guard = 0;
   while (out.length < n && guard++ < 300){

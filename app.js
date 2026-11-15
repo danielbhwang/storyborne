@@ -1156,9 +1156,18 @@ function storyFit(){
 }
 
 /* ---- home navigation: three clear groups instead of one long row of buttons ---- */
+/* home tiles: painted icons where the game already has the picture, emoji until it loads */
+var HN_ART = { 'Town Square':'plaza_townhall', 'My World':'house', 'Great Hall':'hall', 'Tower of Tales':'tower', 'Path of Powers':'portal', 'Skill Quest':'compass',
+  'Workbook':'book', 'Real Books':'library', 'Shop':'shop', 'Armory':'armory', 'Stables':'roost', 'Dragons':'dragon_tidecrest', 'My Dragons':'dragon_tidecrest', 'Trophies':'plaza_trophy' };
+function hnIcon(icon, label){
+  const f = HN_ART[label] && HN_ART[label] + '.webp';
+  if (!f || !artReady(f)) return el('span',{class:'hn-ic'}, icon);
+  const im = el('img',{src:f, alt:'', class:'hn-art'}); im.onerror = () => im.replaceWith(document.createTextNode(icon));
+  return el('span',{class:'hn-ic painted'}, im);
+}
 function homeNav(){
   const tile = (icon, label, go, extra) => el('button',{class:'hn-tile' + (extra && extra.cls ? ' ' + extra.cls : ''), onclick:()=>{ beep('tap'); go(); }},
-    el('span',{class:'hn-ic'}, icon), el('span',{class:'hn-lb'}, label), extra && extra.badge ? el('span',{class:'hn-badge'}, extra.badge) : null);
+    hnIcon(icon, label), el('span',{class:'hn-lb'}, label), extra && extra.badge ? el('span',{class:'hn-badge'}, extra.badge) : null);
   let unread = 0; try { unread = WZ().letters.filter(l => !l.read).length; } catch(e){}
   const pw = typeof PW === 'function' ? PW() : null;
   const group = (cls, title, ...tiles) => el('div',{class:'hn-group ' + cls}, el('div',{class:'hn-title'}, title), el('div',{class:'hn-tiles'}, ...tiles));
@@ -1274,6 +1283,8 @@ const MAX_ACTIVITY_MS = 20 * 60 * 1000; // an app left open doesn't count as an 
 const goalMin = k => ((DB.goalMin || {})[k || kid]) || 10;
 const goalMs = () => goalMin() * 60000;
 const todayMs = () => K.today.date === todayStr() ? K.today.ms : 0;
+// Town Square freebies only pay out after real reading today (at least a minute)
+function readToday(){ return !!(K && K.today && K.today.date === todayStr() && K.today.ms >= 60000); }
 function addReadingTime(ms){
   if (K.today.date !== todayStr()) K.today = { date: todayStr(), ms: 0, goalHit: false };
   K.today.ms += Math.max(0, ms);
@@ -1861,6 +1872,25 @@ function renderReader(){
   );
   show(s);
   paintWords();
+  pageGate(nextBtn, p, manual || single);
+}
+/* Reading gate: Next stays locked until the page was really read out loud. It opens when the iPad heard about half the
+   words, or after the mic has listened long enough for this page (so an accent or a quiet voice is never stuck). */
+function pageGate(btn, p, off){
+  const words = p.tokens.filter(t => !t.skip).length;
+  if (off || !run || run.act.quiet || run.act.kind === 'placement' || words < 4) return;
+  // the iPad mic misses words, so the page opens on TIME (about as long as reading it takes), or earlier if the mic heard a third of it
+  const label = btn.textContent, son = TK === 'son', need = .33, needMs = words * (son ? 450 : 330), t0 = Date.now();
+  const open = () => { if (!run || useManual()) return true;
+    const ok = p.status.filter(x => x === 'ok').length / words;
+    return ok >= need || Date.now() - t0 >= needMs; };
+  const tick = () => {
+    if (!btn.isConnected){ clearInterval(t); return; }
+    const o = open(); btn.disabled = !o; btn.classList.toggle('gated', !o);
+    btn.textContent = o ? label : '🎤 Read this page first';
+    if (o) clearInterval(t);
+  };
+  const t = setInterval(tick, 400); tick();
 }
 
 // Read the page aloud and light up each word as it's spoken (karaoke style).
@@ -2001,7 +2031,7 @@ async function startRecog(resume){
       const pg = run && run.act.pages[run.page];
       // iPad stops listening after a short pause. If the child was reading a moment ago, quietly start again
       // (the words heard so far are kept on the page).
-      if (pg && !pg.done && pg.status.some(x => x === null) && Date.now() - (pg.lastHeard || run.micStart || 0) < 12000 && (pg.restarts = (pg.restarts || 0) + 1) <= 8){
+      if (pg && !pg.done && pg.status.some(x => x === null) && Date.now() - (pg.lastHeard || run.micStart || 0) < 20000 && (pg.restarts = (pg.restarts || 0) + 1) <= 30){
         try { recog = null; recogOn = false; startRecog(true); return; } catch(e){}
       }
       endMicTime(); recogOn = false; updateMicBtn(); paintWords();
@@ -4955,7 +4985,14 @@ function bossHud(hit){
   if (!h){ h = el('div',{class:'boss-hud', style:`--boss:${B.color}`}, el('span',{class:'boss-face sm art', html: bossArt(B, 52)}), el('div',{class:'grow'}, el('b',{}, B.name), el('div',{class:'hp'}, el('div',{class:'hp-fill'}), el('span',{})))); document.body.append(h); }
   h.querySelector('.hp-fill').style.width = pw + '%';
   h.querySelector('.hp span').textContent = `BOSS POWER ${pw}%`;
-  if (hit){ const f = h.querySelector('.boss-face'); f.classList.remove('hit'); void f.offsetWidth; f.classList.add('hit'); }
+  if (hit){
+    const f = h.querySelector('.boss-face'), bang = () => { f.classList.remove('hit'); void f.offsetWidth; f.classList.add('hit'); };
+    if (K.hero){ // the hero jumps in and strikes the boss
+      const ov = el('div',{class:'strike-ov'}, heroNode(170, false)); document.body.append(ov);
+      requestAnimationFrame(() => heroStrike(ov.querySelector('.hero-wrap'), bang));
+      setTimeout(() => ov.remove(), 1300);
+    } else bang();
+  }
 }
 async function bossResult(){
   const r = run, a = r.act, B = r.opts.boss, R = r.reading || computeReading();
@@ -5436,11 +5473,21 @@ const HERO_WAIST = HERO_CLASSIC ? .68 : .56, HERO_CLIP = HERO_CLASSIC ? .13 : .1
 /* painted avatar images (made by Dan in an image generator, face-locked by Claude): heroes/<gia|miles>_t<tier>.png
    (the old avatars/ folder is retired: its t0 files became gia_t7 / miles_t4)
    AVATAR_IMAGES lists the ones shipped; any other file found on the site is picked up automatically next time. */
+// painted-outfit palettes: [main, second, trim, glow], picked to contrast so each set reads as several colours
+const PAINT_PAL = {
+  squire:['#3f6212','#92400e','#d6d3d1','#d9f99d'], ember:['#b91c1c','#f97316','#facc15','#fde047'], frost:['#1e40af','#e0f2fe','#c0c8d8','#67e8f9'],
+  jade:['#065f46','#a7f3d0','#fbbf24','#6ee7b7'], storm:['#4c1d95','#0ea5e9','#facc15','#fde047'], shadow:['#1a1028','#9333ea','#cbd5e1','#e879f9'],
+  starforge:['#1e3a8a','#f8fafc','#fbbf24','#fef08a'], celestial:['#f8fafc','#fde68a','#f59e0b','#f0abfc'], tempest:['#0f766e','#1e40af','#cbd5e1','#a5f3fc'],
+  phoenix:['#dc2626','#f59e0b','#fef3c7','#fde047'], glacier:['#e0f2fe','#0284c7','#c0c0d8','#38bdf8'], dragonlord:['#111827','#b91c1c','#fbbf24','#f87171'],
+  archmage:['#3b0764','#0891b2','#fbbf24','#67e8f9']
+};
 const AVATAR_IMAGES = { gia:[0,1,7], miles:[0,1,4] };
+// one painting per armor set (file name without .png). Sets without one use the nearest tier painting, recolored to the set.
+const AVATAR_SETS = {"gia": {"traveler": "gia_s_traveler", "squire": "gia_s_squire", "ember": "gia_s_ember", "frost": "gia_s_frost", "jade": "gia_s_jade", "storm": "gia_s_storm", "shadow": "gia_s_shadow", "starforge": "gia_s_starforge", "celestial": "gia_s_celestial", "tempest": "gia_s_tempest", "phoenix": "gia_s_phoenix", "glacier": "gia_s_glacier", "dragonlord": "gia_s_dragonlord", "archmage": "gia_s_archmage"}, "miles": {"traveler": "miles_s_traveler", "squire": "miles_s_squire", "ember": "miles_s_ember", "frost": "miles_s_frost", "jade": "miles_s_jade", "storm": "miles_s_storm", "shadow": "miles_s_shadow", "starforge": "miles_s_starforge", "celestial": "miles_s_celestial", "tempest": "miles_s_tempest", "phoenix": "miles_s_phoenix", "glacier": "miles_s_glacier", "dragonlord": "miles_s_dragonlord", "archmage": "miles_s_archmage"}};   // one painting per armor set, each with an empty right fist for the weapon
 const avatarFound = (() => { try { return JSON.parse(localStorage.getItem('sb_heroImgs') || '{}'); } catch(e){ return {}; } })();
 function avatarHas(who, t){ return (AVATAR_IMAGES[who] || []).includes(t) || (avatarFound[who] || []).includes(t); }
-(function probeAvatars(){   // look for newly uploaded tiers once per load; no screen flicker, used from the next screen on
-  if (/^file:/.test(location.href) && !navigator.webdriver) return;
+(function probeAvatars(){   // retired: every armor set has its own painting (AVATAR_SETS), so no more 404 probes on each launch
+  return;
   ['gia','miles'].forEach(who => { for (let t = 0; t <= 12; t++){ if (avatarHas(who, t)) continue;
     const im = new Image(); im.onload = () => { (avatarFound[who] = avatarFound[who] || []).push(t); try { localStorage.setItem('sb_heroImgs', JSON.stringify(avatarFound)); } catch(e){} };
     im.src = `${who}_t${t}.png?v=${(document.querySelector('script[src*="app.js"]') || {}).src?.split('v=')[1] || ''}`; } });
@@ -5456,18 +5503,22 @@ function avatarImgFor(override = {}){
   const tint = Object.assign({}, K.hero || {}, override.hero || {}).paintTint;
   const G = heroState(), eq = Object.assign({}, G.eq, override.eq || {}), ch = eq.chest && SET_BY_ID[eq.chest];
   const tier = ch ? Math.min(12, ch.tier) : 0;
-  let pic = null;
+  let pic = ch && (AVATAR_SETS[base] || {})[ch.id] ? `${AVATAR_SETS[base][ch.id]}.webp` : null;   // a painting made for this exact set
+  const setPic = !!pic;
   for (let t = tier; t >= 0 && !pic; t--) if (avatarHas(base, t)) pic = `${base}_t${t}.png`;
   for (let t = tier + 1; t <= 12 && !pic; t++) if (avatarHas(base, t)) pic = `${base}_t${t}.png`;   // no picture at or below yet: lowest one above
-  return pic && artReady(pic) ? tintedHero(pic, tint) : null;
+  // the painting shows one outfit; any other chest set recolors the clothes to that set's colours
+  const exact = setPic || (!ch || ch.id === 'traveler');
+  const t2 = Object.assign({}, tint || {}, ch && !exact && ch.id !== 'traveler' ? { outfit: (PAINT_PAL[ch.id] || [ch.prim, ch.sec, ch.trim, ch.gem]).join('') } : {});
+  return pic && artReady(pic) ? tintedHero(pic, t2) : null;
 }
 // Living portrait: the painted PNG breathes, sways, glows and sheds sparkles (SMIL, so it runs on old iPads and isn't killed by lowfx). Small thumbnails stay still.
-function heroImgBody(img, size, glow){
+function heroImgBody(img, size, glow, under = '', over = ''){
   const mystery = false;
   const fid = 'my' + (++heroSeq);
   const pic = mystery
     ? `<filter id="${fid}"><feColorMatrix type="matrix" values="0 0 0 0 .2  0 0 0 0 .14  0 0 0 0 .4  0 0 0 1 0"/></filter><image href="${img}" x="0" y="0" width="200" height="248" preserveAspectRatio="xMidYMax meet" filter="url(#${fid})"/><text x="100" y="150" text-anchor="middle" font-size="64" font-weight="900" fill="#fde68a" stroke="#7c3aed" stroke-width="3" font-family="Fredoka,sans-serif">?</text>`
-    : `<image href="${img}" x="0" y="0" width="200" height="248" preserveAspectRatio="xMidYMax meet"/>`;
+    : under + `<image href="${img}" x="0" y="0" width="200" height="248" preserveAspectRatio="xMidYMax meet"/>` + over;
   if (size < 120 || navigator.webdriver && !/[?&]anim=1/.test(location.search)) return pic;
   const d = (2.8 + Math.random() * .8).toFixed(2), off = (-Math.random() * 3).toFixed(2);
   const spark = [[58,1.9,0],[142,2.3,.7],[80,2.6,1.4],[124,2.1,2.1],[100,2.8,1.1]].map(([x, r, b]) =>
@@ -5480,7 +5531,107 @@ function heroImgBody(img, size, glow){
     + `<g transform="translate(-100 -248)">${pic}</g></g></g></g>` + spark;
 }
 // the equipped weapon on the painted portrait: a legendary weapon, else the set weapon's painted icon; held upright at the hero's side
+/* paintings with an empty right fist: [fist x, fist y as fractions of the picture, width/height] */
+const HERO_HAND = {"gia_s_archmage": [0.35, 0.578, 0.639], "gia_s_celestial": [0.354, 0.584, 0.636], "gia_s_dragonlord": [0.344, 0.579, 0.638], "gia_s_ember": [0.36, 0.549, 0.55], "gia_s_frost": [0.336, 0.545, 0.568], "gia_s_glacier": [0.344, 0.579, 0.629], "gia_s_jade": [0.373, 0.556, 0.57], "gia_s_phoenix": [0.324, 0.579, 0.661], "gia_s_shadow": [0.351, 0.534, 0.634], "gia_s_squire": [0.31, 0.578, 0.543], "gia_s_starforge": [0.351, 0.538, 0.638], "gia_s_storm": [0.38, 0.56, 0.596], "gia_s_tempest": [0.339, 0.575, 0.642], "gia_s_traveler": [0.348, 0.548, 0.572], "miles_s_archmage": [0.357, 0.55, 0.824], "miles_s_celestial": [0.303, 0.575, 0.763], "miles_s_dragonlord": [0.32, 0.565, 0.808], "miles_s_ember": [0.286, 0.56, 0.716], "miles_s_frost": [0.309, 0.563, 0.755], "miles_s_glacier": [0.313, 0.526, 0.724], "miles_s_jade": [0.283, 0.576, 0.751], "miles_s_phoenix": [0.305, 0.58, 0.749], "miles_s_shadow": [0.289, 0.557, 0.722], "miles_s_squire": [0.281, 0.553, 0.658], "miles_s_starforge": [0.306, 0.575, 0.728], "miles_s_storm": [0.307, 0.562, 0.762], "miles_s_tempest": [0.301, 0.576, 0.771], "miles_s_traveler": [0.268, 0.549, 0.641]};
+/* weapon pictures: [grip x, grip y as fractions, angle of the weapon in the picture (0 = straight up), width/height] */
+const WPN_GRIP = {"shadowfang": [0.276, 0.762, 29.7, 0.804], "wildwood": [0.627, 0.577, -1.3, 0.38], "weapon_tidecrest": [0.588, 0.856, -1.5, 0.283], "moonsilver": [0.72, 0.5, 0.0, 0.989], "ironclad": [0.497, 0.855, 0.6, 0.939], "crystalshard": [0.489, 0.79, -1.8, 0.407], "sunfeather": [0.286, 0.579, 3.9, 0.337], "voidbloom": [0.576, 0.854, -0.9, 0.839], "sunspire": [0.496, 0.822, 0.2, 0.307], "frostwail": [0.461, 0.74, -0.1, 0.26], "stormcaller": [0.492, 0.811, -0.3, 0.243], "emberfall": [0.68, 0.86, 0.0, 1.162], "twinmoon": [0.438, 0.857, -0.0, 0.153], "starforged": [0.668, 0.825, 0.0, 0.287], "glimmerblade": [0.586, 0.728, -0.1, 0.666], "dreamstaff": [0.518, 0.857, -0.6, 0.277], "thornbow": [0.514, 0.58, -0.9, 0.343], "magmaaxe": [0.562, 0.859, 0.7, 0.723], "traveler_sword": [0.78, 0.192, -151.8, 0.592], "traveler_staff": [0.162, 0.855, 27.6, 0.592], "squire_sword": [0.754, 0.221, -151.7, 0.596], "squire_staff": [0.172, 0.857, 26.7, 0.558], "ember_sword": [0.751, 0.227, -151.6, 0.583], "ember_staff": [0.176, 0.856, 25.9, 0.575], "frost_sword": [0.204, 0.785, 34.3, 0.725], "frost_staff": [0.18, 0.857, 26.2, 0.562], "storm_sword": [0.211, 0.782, 34.2, 0.725], "storm_staff": [0.151, 0.855, 23.6, 0.542], "jade_sword": [0.217, 0.773, 34.2, 0.725], "jade_staff": [0.504, 0.855, -0.1, 0.242], "shadow_sword": [0.5, 0.5, 0.0, 0.375], "shadow_staff": [0.493, 0.856, -0.0, 0.292], "starforge_sword": [0.492, 0.191, 180.0, 0.246], "starforge_staff": [0.498, 0.854, 1.2, 0.342], "celestial_sword": [0.492, 0.165, 180.0, 0.292], "celestial_staff": [0.485, 0.854, -1.7, 0.287], "tempest_sword": [0.493, 0.191, -180.0, 0.279], "tempest_staff": [0.489, 0.855, 0.6, 0.383], "phoenix_sword": [0.493, 0.196, 180.0, 0.287], "phoenix_staff": [0.497, 0.856, 0.4, 0.325], "glacier_sword": [0.492, 0.2, 180.0, 0.292], "glacier_staff": [0.493, 0.858, 0.1, 0.412], "dragonlord_sword": [0.49, 0.195, 179.9, 0.283], "dragonlord_staff": [0.499, 0.858, 0.2, 0.212]};
+const HAND_TILT = -24;   // held pointing up and out, away from the body
+function heroHandWeapon(img, override = {}){
+  try {
+    const m = /((?:gia|miles)_s_[a-z]+)\.webp/.exec(img || ''); const H = m && HERO_HAND[m[1]]; if (!H) return null;
+    const wpn = override.wpn !== undefined ? override.wpn : K.wpn;
+    let src = null;
+    if (wpn && LW_BY_ID[wpn] && hasArt('weapons', wpn)) src = artURL('weapons', wpn);
+    else { const eq = Object.assign({}, heroState().eq, override.eq || {}), set = eq.weapon === 'archmage' ? 'storm' : (eq.weapon || 'traveler');   // the Archmage set has no weapon picture: use the purple Stormcaller one
+      src = gearArtFor(set, 'weapon') || gearArtFor('traveler', 'weapon'); }
+    const G = src && WPN_GRIP[src.replace(/\.webp$/, '')]; if (!G) return null;
+    // where the painting sits in the 200x248 box (xMidYMax meet)
+    const [fx, fy, ar] = H, wide = ar > 200 / 248, dw = wide ? 200 : 248 * ar, dh = wide ? 200 / ar : 248, x0 = (200 - dw) / 2, y0 = 248 - dh;
+    const px = x0 + fx * dw, py = y0 + fy * dh;
+    const L = dh * (/_staff|staff|tidecrest|bow|wildwood|sunfeather|shadow_sword/.test(src) ? .7 : .6);
+    let wh = L, ww = wh * G[3];
+    if (ww > L * .8){ ww = L * .8; wh = ww / G[3]; }   // wide pictures (hammers, axes, crescents) are sized by their width
+    const tf = `translate(${px.toFixed(1)} ${py.toFixed(1)}) rotate(${(HAND_TILT - G[2]).toFixed(1)}) translate(${(-G[0] * ww).toFixed(1)} ${(-G[1] * wh).toFixed(1)})`;
+    const im = `<image href="${src}" width="${ww.toFixed(1)}" height="${wh.toFixed(1)}"/>`;
+    const org = `transform-origin:${px.toFixed(1)}px ${py.toFixed(1)}px`, cid = 'fc' + (++heroSeq), fr = (dh * .034).toFixed(1);
+    // weapon in front of wings and capes, then the painted fist laid back over the handle so the fingers wrap it
+    const fist = `<clipPath id="${cid}"><circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${fr}"/></clipPath><image href="${img}" x="0" y="0" width="200" height="248" preserveAspectRatio="xMidYMax meet" clip-path="url(#${cid})"/>`;
+    return ['', `<g class="hand-wpn static"><g transform="${tf}">${im}</g>${fist}</g><g class="hand-wpn front" style="${org}"><g transform="${tf}">${im}</g></g>`];
+  } catch(e){ return null; }   // art tables load later in the file
+}
+/* worn relics and full sets as effects on the painted hero (SMIL, so they animate on old iPads; thumbnails stay still) */
+const RELIC_GLOW = { ring_amethyst:'#c084fc', ring_sapphire:'#60a5fa', ring_ruby:'#f87171', ring_emerald:'#34d399', ring_sun:'#fbbf24', ring_moon:'#e0e7ff',
+  amu_crystal:'#67e8f9', amu_sun:'#fbbf24', amu_ruby:'#fb7185', amu_jade:'#4ade80', amu_dragon:'#f59e0b', amu_star:'#a5b4fc',
+  gau_violet:'#a855f7', gau_ember:'#fb923c', gau_thorn:'#22c55e' };
+function heroWorn(){ try { const R = relicState(); return RELICS.filter(r => R.on[r.kind] === r.id); } catch(e){ return []; } }
+function heroRelicBack(size, full){
+  const worn = heroWorn(), anim = size >= 120 && !(navigator.webdriver && !/[?&]anim=1/.test(location.search)), u = 'rl' + (++heroSeq);
+  let s = '';
+  const ring = worn.find(r => r.kind === 'ring'), gau = worn.find(r => r.kind === 'gauntlet');
+  if (gau){ // energy aura rising around the body
+    const c = RELIC_GLOW[gau.id];
+    s += `<defs><radialGradient id="${u}a" cx=".5" cy=".6" r=".5"><stop offset="0" stop-color="${c}" stop-opacity="0"/><stop offset=".6" stop-color="${c}" stop-opacity=".18"/><stop offset=".85" stop-color="${c}" stop-opacity=".55"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></radialGradient></defs>`
+      + `<ellipse cx="100" cy="140" rx="86" ry="112" fill="url(#${u}a)">${anim ? `<animate attributeName="rx" values="82;92;82" dur="1.8s" repeatCount="indefinite"/><animate attributeName="opacity" values=".7;1;.7" dur="1.8s" repeatCount="indefinite"/>` : ''}</ellipse>`;
+    if (anim) s += [30, 62, 138, 170, 48, 152].map((x, i) => `<path d="M${x} 240 q-6 -14 0 -26 q6 -12 0 -24" stroke="${c}" stroke-width="3" fill="none" stroke-linecap="round" opacity="0"><animateTransform attributeName="transform" type="translate" values="0 0;0 -150" dur="2.4s" begin="${(i * .4).toFixed(1)}s" repeatCount="indefinite"/><animate attributeName="opacity" values="0;.9;0" dur="2.4s" begin="${(i * .4).toFixed(1)}s" repeatCount="indefinite"/></path>`).join('');
+  }
+  if (ring){ // glowing magic circle under the feet
+    const c = RELIC_GLOW[ring.id], runes = ['ᚱ','ᛟ','ᚨ','ᛞ','ᛖ','ᚷ','ᛉ','ᛋ'];
+    s += `<g transform="translate(100 242) scale(1 .3)"><circle r="74" fill="${c}" opacity=".14"/><circle r="74" fill="none" stroke="${c}" stroke-width="4" opacity=".9"/><circle r="58" fill="none" stroke="${c}" stroke-width="2" stroke-dasharray="6 5" opacity=".8"/>`
+      + `<g>${runes.map((r, i) => { const t = i / runes.length * Math.PI * 2; return `<text x="${(Math.cos(t) * 66).toFixed(1)}" y="${(Math.sin(t) * 66 + 6).toFixed(1)}" fill="#fff" font-size="16" font-family="serif" text-anchor="middle" opacity=".95">${r}</text>`; }).join('')}`
+      + (anim ? `<animateTransform attributeName="transform" type="rotate" values="0;360" dur="14s" repeatCount="indefinite"/>` : '') + `</g></g>`;
+  }
+  return s;
+}
+function heroRelicFront(size, full){
+  const worn = heroWorn(), anim = size >= 120 && !(navigator.webdriver && !/[?&]anim=1/.test(location.search));
+  let s = '';
+  const amu = worn.find(r => r.kind === 'amulet');
+  if (amu){ // the amulet floats and orbits the hero, glowing
+    const c = RELIC_GLOW[amu.id], src = (window.RELIC_IMG || {})[amu.id] || `${amu.id}.webp`, fid = 'ag' + (++heroSeq);
+    const orb = `<filter id="${fid}" x="-80%" y="-80%" width="260%" height="260%"><feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="${c}" flood-opacity="1"/></filter>`
+      + `<circle r="20" fill="${c}" opacity=".25"/><image href="${src}" x="-17" y="-17" width="34" height="34" filter="url(#${fid})"/>`;
+    s += anim ? `<g>${orb}<animateMotion dur="7s" repeatCount="indefinite" path="M168 120 C168 60 32 60 32 120 C32 180 168 180 168 120"/></g>` : `<g transform="translate(166 108)">${orb}</g>`;
+  }
+  if (full){ // golden halo for a complete matching set
+    s += `<g transform="translate(100 6)"><ellipse rx="30" ry="7" fill="none" stroke="#fff7c2" stroke-width="7" opacity=".35"/><ellipse rx="30" ry="7" fill="none" stroke="${full.gem}" stroke-width="3.5" opacity=".95">${anim ? `<animate attributeName="opacity" values=".75;1;.75" dur="2.2s" repeatCount="indefinite"/>` : ''}</ellipse></g>`;
+  }
+  return s;
+}
+const WPN_TILT = -28, WPN_H = 230, WPN_CY = 96;   // worn across the back: drawn behind the portrait, poking out over the shoulder
 function heroWeaponLayer(override = {}){ try { return heroWeaponLayer2(override); } catch(e){ return ''; } }   // art tables load later in the file
+function heroWeaponSrc(){
+  try {
+    if (K.wpn && LW_BY_ID[K.wpn] && hasArt('weapons', K.wpn)) return artURL('weapons', K.wpn);
+    const set = heroState().eq.weapon; if (set && set !== 'traveler') return gearArtFor(set, 'weapon');
+  } catch(e){}
+  return null;
+}
+/* the strike: the weapon leaves the hero's back and slashes forward with a glowing trail, the hero lunges, then it returns.
+   wrap = an element holding the hero (.hero-wrap). Works with any painting: no hand needed. */
+function heroStrike(wrap, onHit){
+  if (!wrap || wrap.classList.contains('striking')) return;
+  const color = (fullSetOn() || {}).gem || (heroKidKey() === 'daughter' ? '#e879f9' : '#7dd3fc');
+  wrap.classList.add('striking'); wrap.style.setProperty('--sw', color);
+  // a painting with an empty fist swings the weapon in the hand; older paintings fall back to the book bolt / sword flash
+  const hw = wrap.querySelector('.hand-wpn.front'), svg = wrap.querySelector('.hero-main svg');
+  if (hw && svg){
+    const o = /transform-origin:\s*([\d.]+)px\s+([\d.]+)px/.exec(hw.getAttribute('style') || ''), r = svg.getBoundingClientRect(), w = wrap.getBoundingClientRect(), k = r.width / 200;
+    const fx = el('div',{class:'sw-fx hand'}, el('div',{class:'sw-trail'}), el('div',{class:'sw-flash'}));
+    if (o){ fx.style.setProperty('--hx', (r.left - w.left + o[1] * k) + 'px'); fx.style.setProperty('--hy', (r.top - w.top + o[2] * k) + 'px'); fx.style.setProperty('--hs', (r.width * 1.1) + 'px'); }
+    wrap.append(fx); beep('tap');
+    setTimeout(() => { if (onHit) onHit(); beep('star'); }, 380);
+    setTimeout(() => { fx.remove(); wrap.classList.remove('striking'); }, 950);
+    return;
+  }
+  const mage = heroKidKey() === 'daughter';
+  const fx = el('div',{class:'sw-fx' + (mage ? ' mage' : ' blade')},
+    mage ? el('div',{class:'sw-book'}) : el('div',{class:'sw-trail'}),
+    mage ? el('div',{class:'sw-orb'}) : null,
+    el('div',{class:'sw-flash'}));
+  wrap.append(fx); beep('tap');
+  setTimeout(() => { if (onHit) onHit(); beep('star'); }, 330);
+  setTimeout(() => { fx.remove(); wrap.classList.remove('striking'); }, 900);
+}
 function heroWeaponLayer2(override = {}){
   const wpn = override.wpn !== undefined ? override.wpn : K.wpn;
   let src = null, glow = '#fde68a';
@@ -5492,7 +5643,7 @@ function heroWeaponLayer2(override = {}){
   if (!src) return '';
   const fid = 'wg' + (++heroSeq);
   return `<defs><filter id="${fid}" x="-40%" y="-20%" width="180%" height="140%"><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="${glow}" flood-opacity=".75"/></filter></defs>`
-    + `<g class="hero-wpn" transform="rotate(-9 44 236)"><image href="${src}" x="4" y="70" width="80" height="168" preserveAspectRatio="xMidYMax meet" filter="url(#${fid})"/></g>`;
+    + `<g class="hero-wpn" transform="rotate(${WPN_TILT} 104 ${WPN_CY})"><image href="${src}" x="44" y="${WPN_CY - WPN_H/2}" width="120" height="${WPN_H}" preserveAspectRatio="xMidYMid meet" filter="url(#${fid})"/></g>`;
 }
 function heroSVG(size = 200, override = {}){
   if (HERO_CLASSIC) return heroSVGClassic(size, override);
@@ -5501,7 +5652,9 @@ function heroSVG(size = 200, override = {}){
     const full = override.eq ? null : fullSetOn(), gem = full ? full.gem : '#c084fc';
     return `<svg viewBox="0 0 200 250" width="${size}" height="${size*1.25}" xmlns="http://www.w3.org/2000/svg" class="hero-svg hero-img" style="overflow:visible">`
       + `<ellipse cx="100" cy="244" rx="52" ry="7" fill="#000" opacity=".25"/>` + (full ? `<ellipse cx="100" cy="244" rx="46" ry="5" fill="none" stroke="${gem}" stroke-width="2" opacity=".8"/>` : '')
-      + heroImgBody(img, size, full ? gem : (heroKidKey() === 'daughter' ? '#e879f9' : '#5eead4')) + heroWeaponLayer(override) + `</svg>`;
+      + (() => { const hw = heroHandWeapon(img, override);   // [behind the hand, in front for the swing] or null
+        return heroRelicBack(size, full) + (hw ? '' : heroWeaponLayer(override))
+          + heroImgBody(img, size, full ? gem : (heroKidKey() === 'daughter' ? '#e879f9' : '#5eead4'), hw ? hw[0] : '', hw ? hw[1] : '') + heroRelicFront(size, full); })() + `</svg>`;
   }
   const girl = heroKidKey() === 'daughter';
   const h = Object.assign({ skin: SKIN_TONES[1], hairColor: girl ? '#7c3aed' : '#1f1b18', hairStyle: girl ? 'short' : 'spiky', weapon: 'sword' }, K.hero || {}, override.hero || {});
@@ -5748,6 +5901,7 @@ function screenArmory(){
   stopAll();
   const G = heroState();
   const prev = el('div',{class:'armory-prev'}, heroNode(230), relicBadges());
+  prev.onclick = () => heroStrike(prev.querySelector('.hero-wrap'));   // tap the hero for a practice swing
   const grid = el('div',{class:'armory-grid' + (armorySlot === 'legend' ? ' lw-grid' : '')});
   if (armorySlot === 'legend') legendGrid(grid);
   else if (armorySlot === 'relics') relicsGrid(grid);
@@ -6863,7 +7017,7 @@ function screenTownSquare(){
     const today = todayStr();
     if (K.pzWish === today && !isDev()){ say('The fountain is resting. Come back tomorrow for another wish!'); return pop(el('div',{class:'pz-pop-e'},'⛲'), el('b',{},'Wishing Fountain'), el('small',{},'One wish a day. Come back tomorrow!')); }
     pop(el('div',{class:'pz-pop-e'},'⛲'), el('b',{},'Wishing Fountain'), el('small',{},'Toss a coin and make a wish!'),
-      el('button',{class:'btn small', onclick:() => { K.pzWish = today; const n = 1 + Math.floor(Math.random()*5); K.stars += n; save(); closePop();
+      el('button',{class:'btn small', onclick:() => { if (!readToday()){ say('Read a story first today, then come back for this treasure!'); beep('tap'); return; } K.pzWish = today; const n = 1 + Math.floor(Math.random()*5); K.stars += n; save(); closePop();
         const coin = el('div',{class:'pz-coin', style:`left:${PZ.pos.x}px;top:${PZ.pos.y - 120}px`},'🪙'); world.append(coin); setTimeout(() => coin.remove(), 1200);
         setTimeout(() => { beep('star'); confetti(30); bubble(me, `+${n}⭐`, true); say(`Your wish came true! ${n} stars!`); }, 900); }}, '🪙 Make a wish'));
   }
@@ -6880,7 +7034,7 @@ function screenTownSquare(){
     say(`Hoot hoot! The word of the day is: ${w}. Can you read it out loud?`);
     pop(el('div',{class:'pz-pop-e'},'🦉'), el('small',{},'Word of the day'), el('div',{class:'pz-word'}, w),
       el('button',{class:'btn small ghost', onclick:() => say(w)}, '🔊 Hear it'),
-      done ? el('small',{},'✅ You got today\'s word star!') : el('button',{class:'btn small', onclick:e => { K.pzWord = todayStr(); K.stars += 1; save(); beep('star'); bubble(me,'+1⭐',true); say('Hoot! Great reading!'); e.target.replaceWith(el('small',{},'✅ +1 ⭐')); }}, '🗣️ I read it!'));
+      done ? el('small',{},'✅ You got today\'s word star!') : el('button',{class:'btn small', onclick:e => { if (!readToday()){ say('Read a story first today, then come back for this treasure!'); beep('tap'); return; } K.pzWord = todayStr(); K.stars += 1; save(); beep('star'); bubble(me,'+1⭐',true); say('Hoot! Great reading!'); e.target.replaceWith(el('small',{},'✅ +1 ⭐')); }}, '🗣️ I read it!'));
   }
   function keeper(){
     const n = chestCount();
@@ -6915,7 +7069,7 @@ function screenTownSquare(){
     pzPush({ emote:em, emoteTo:to, emoteTs:Date.now(), sent });
     const targets = to === 'all' ? others : [to];
     const liveNear = targets.filter(k => pzOnline(pzRec(k)) && Math.hypot(PZ.pos.x - P[k].pos.x, PZ.pos.y - P[k].pos.y) < 220);
-    if (em === '✋' && liveNear.length && K.pzHigh5 !== todayStr()){
+    if (em === '✋' && liveNear.length && K.pzHigh5 !== todayStr() && readToday()){
       K.pzHigh5 = todayStr(); K.stars += 2; save(); setTimeout(() => { confetti(40); burst('HIGH FIVE!'); bubble(me, '+2⭐', true); say('Team high five! Two stars!'); }, 400);
     } else if (to !== 'all' && !pzOnline(pzRec(to))) pzToast(isWorldId(to) ? `${kidName(to)} is away right now. Try again when they're in town!` : `${em} sent! ${kidName(to)} will see it next time.`);
   }
@@ -6949,7 +7103,7 @@ function screenTownSquare(){
       const gx = Math.max(80, Math.min(PZ_W - 80, PZ.pos.x + Math.cos(a) * r)), gy = Math.max(220, Math.min(PZ_H - 60, PZ.pos.y + Math.sin(a) * r));
       const g = el('div',{class:'pz-gem', style:`left:${gx - 36}px;top:${gy - 60}px;z-index:${Math.round(gy)};--pc:${PWR.color}`, html:powerGemSVG(PWR.color)});
       g.onclick = e => { e.stopPropagation(); walkTo(gx, gy + 10, () => setTimeout(() => {
-        if (K.pzGem === todayStr()) return; K.pzGem = todayStr(); K.stars += 3; save(); g.remove();
+        if (K.pzGem === todayStr()) return; if (!readToday()){ say('Read a story first today, then come back for this treasure!'); beep('tap'); return; } K.pzGem = todayStr(); K.stars += 3; save(); g.remove();
         beep('level'); confetti(50); bubble(me, '+3⭐', true); say(`You found a Power Gem! Three stars!`); }, PZM.mode === 'blink' ? 200 : 700)); };
       world.append(g); setTimeout(() => say(`Your ${PWR.name} power uncovered a hidden Power Gem! Go get it!`), 900);
     };
@@ -7111,7 +7265,14 @@ function progressReport(id, days = 7){
   const acc = reads.filter(x => x.total && tr === 'son'), accAvg = acc.length ? Math.round(acc.reduce((t, x) => t + x.accuracy, 0) / acc.length) : null;
   const sinceKey = todayStr(since), types = {};
   (k.qlog || []).filter(x => x.d >= sinceKey).forEach(x => { const t = types[x.t] = types[x.t] || [0, 0]; t[1]++; if (x.ok) t[0]++; });
-  const typeList = Object.entries(types).map(([t, [r, n]]) => ({ t, r, n, p: Math.round(r / n * 100) }));
+  // the same question types the quizzes adapt to (falls back to the older log for weeks before this was recorded)
+  const SD = k.skillDays || {}, wk = {};
+  Object.entries(SD).forEach(([d, ts]) => { if (d >= sinceKey) Object.entries(ts).forEach(([t, [r, n]]) => { const x = wk[t] = wk[t] || [0, 0]; x[0] += r; x[1] += n; }); });
+  const useNew = Object.keys(wk).length > 0;
+  const typeList = useNew ? Object.entries(wk).map(([t, [r, n]]) => ({ t: QTYPE_NAME[t] || t, key: t, r, n, p: Math.round(r / n * 100) }))
+                          : Object.entries(types).map(([t, [r, n]]) => ({ t, r, n, p: Math.round(r / n * 100) }));
+  const focus = weakTypes(k).map(t => QTYPE_NAME[t]);
+  const breakdown = typeList.slice().sort((a, b) => a.p - b.p).map(x => `${x.t}: ${x.r}/${x.n} (${x.p}%)${focus.includes(x.t) ? '  🎯 extra practice' : ''}`);
   const good = [], work = [];
   typeList.filter(x => x.n >= 3 && x.p >= 80).sort((a, b) => b.p - a.p).forEach(x => good.push(`${x.t}: ${x.r} of ${x.n} right (${x.p}%)`));
   typeList.filter(x => x.n >= 2 && x.p < 65).sort((a, b) => a.p - b.p).forEach(x => work.push(`${x.t}: ${x.r} of ${x.n} right (${x.p}%)`));
@@ -7132,16 +7293,19 @@ function progressReport(id, days = 7){
     'Word meaning': `When you hit a new word, guess its meaning together from the sentence around it.`,
     'Why & how (inference)': `Ask "why do you think they did that?" about characters in books and shows.`,
     'Story details': `Have ${name} read a little slower and use the story highlighter for important details.` };
-  const tip = !recent.length ? `No reading logged this week. A short story at the same time each day builds the habit.` : weak ? TIPS[weak.t] : (qAll && qRight / qAll >= .85 ? `${name} is doing great. Try a longer story or the next chapter book.` : `Keep it up. Short, daily reads beat long, rare ones.`);
+  const newWeak = useNew ? typeList.filter(x => x.n >= 2 && x.p < 65).sort((a, b) => a.p - b.p)[0] : null;
+  const tip = newWeak ? `${newWeak.t} is the hardest kind of question right now. ${QTYPE_HELP[newWeak.key]}` : !recent.length ? `No reading logged this week. A short story at the same time each day builds the habit.` : weak ? TIPS[weak.t] : (qAll && qRight / qAll >= .85 ? `${name} is doing great. Try a longer story or the next chapter book.` : `Keep it up. Short, daily reads beat long, rare ones.`);
   const lines = [
     `📚 ${name} (${TRACK_INFO[tr].name} · ${TRACK_INFO[tr].word} ${k.level})`,
     `This week: ${reads.length} stories, ${minutes} min, ${qAll ? `${qRight}/${qAll} questions right (${Math.round(qRight / qAll * 100)}%)` : 'no quizzes yet'}`,
     ``, `✅ Doing well:`, ...(good.length ? good.map(x => '  • ' + x) : ['  • (not enough answers yet this week)']),
     ``, `🎯 Needs practice:`, ...(work.length ? work.map(x => '  • ' + x) : ['  • Nothing stands out. Nice!']),
+    ...(breakdown.length ? [``, `🧠 Question types (hardest first):`, ...breakdown.map(x => '  • ' + x),
+        focus.length ? `  The game is giving ${name} extra questions on: ${focus.join(', ')}. Other kinds stay mixed in.` : `  No weak spots, so quizzes stay evenly mixed.`] : []),
     ...(tricky.length ? [``, `🔤 Tricky words: ${tricky.join(', ')}`] : []),
     ...towerReport(k, since),
     ``, `💡 Tip: ${tip}`];
-  return { name, good, work, tricky, tip, text: lines.join('\n'), reads: reads.length, minutes, qRight, qAll };
+  return { name, good, work, tricky, tip, text: lines.join('\n'), reads: reads.length, minutes, qRight, qAll, typeList, focus };
 }
 function screenReport(){
   stopAll(); document.body.className = 'parent';
@@ -7165,6 +7329,10 @@ function screenReport(){
       el('div',{class:'stat'}, el('b',{}, r.qAll ? Math.round(r.qRight / r.qAll * 100) + '%' : '–'), el('span',{}, 'questions right'))),
     el('h3',{}, '✅ Doing well'), el('ul',{}, ...(r.good.length ? r.good : ['Not enough answers yet this week']).map(x => el('li',{}, x))),
     el('h3',{}, '🎯 Needs practice'), el('ul',{}, ...(r.work.length ? r.work : ['Nothing stands out. Nice!']).map(x => el('li',{}, x))),
+    r.typeList && r.typeList.length ? el('div',{class:'week-skills'}, el('h3',{}, '🧠 Question types (hardest first)'),
+      ...r.typeList.slice().sort((a, b) => a.p - b.p).map(x => el('div',{class:'ws-row' + (x.p < 60 ? ' bad' : x.p < 80 ? ' mid' : ' good')},
+        el('span',{class:'ws-name'}, x.t + (r.focus.includes(x.t) ? '  🎯' : '')), el('span',{class:'ws-bar'}, el('i',{style:`width:${x.p}%`})), el('b',{}, `${x.r}/${x.n} · ${x.p}%`), el('span'))),
+      el('p',{class:'muted small'}, r.focus.length ? `🎯 = extra practice: about 2 questions of this kind in every quiz, plus matching Workbook drills, until it improves.` : 'No weak spots, so quizzes stay evenly mixed.')) : null,
     r.tricky.length ? el('p',{}, el('b',{}, '🔤 Tricky words: '), r.tricky.join(', ')) : null,
     ...(() => { const sn = new Date(); sn.setHours(0,0,0,0); sn.setDate(sn.getDate() - 6); const L = towerReport(DB.kids[r.id], sn).filter(Boolean); return L.length ? [el('div',{class:'tw-rep'}, el('h3',{}, L[0]), ...L.slice(1).map(x => el('div',{}, x)))] : []; })(),
     el('p',{class:'week-tip'}, '💡 ' + r.tip));
@@ -7213,7 +7381,32 @@ function weeklySummary(which){
       el('div',{class:'stat'}, el('b',{}, qNow == null ? '–' : qNow + '%'), el('span',{}, 'questions right' + arrow(qNow, qBefore))),
       trackOf(which) === 'son' ? el('div',{class:'stat'}, el('b',{}, aNow == null ? '–' : aNow + '%'), el('span',{}, 'words read right' + arrow(aNow, accAvg(lastWeek)))) : null),
     el('p',{}, el('b',{},'Tricky words: '), tricky.length ? tricky.join(', ') : 'none right now 🎉'),
+    weeklySkills(which, name),
     el('p',{class:'week-tip'}, '💡 ' + tip));
+}
+/* question types this week vs last week, weakest first, and which ones the game is giving extra practice on */
+const QTYPE_HELP = { detail:'Ask "Who? What? Where?" after each page.', why:'Ask "Why did that happen?" and look for the word "because".',
+  infer:'Ask "How do you know?" when the story hints at something without saying it.', craft:'Stop at a new word and guess its meaning from the sentence around it.',
+  bigidea:'After the story, ask "What was this mostly about, in one sentence?"', evidence:'Ask "Show me the sentence that proves it."', sequence:'Retell the story with "first, then, last".' };
+function weeklySkills(which, name){
+  const k = DB.kids[which], D = k.skillDays || {};
+  const sum = (from, to) => { const r = {}; Object.entries(D).forEach(([d, types]) => { const t = new Date(d + 'T12:00'); if (t >= from && t < to) Object.entries(types).forEach(([ty, [a, b]]) => { const x = r[ty] = r[ty] || [0, 0]; x[0] += a; x[1] += b; }); }); return r; };
+  const day = n => { const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - n); return d; };
+  const now = sum(day(6), new Date(Date.now() + 86400000)), before = sum(day(13), day(6));
+  const rows = Object.keys(QTYPE_NAME).filter(t => now[t]).map(t => [t, now[t][0], now[t][1], Math.round(now[t][0] / now[t][1] * 100)]).sort((a, b) => a[3] - b[3]);
+  const focus = weakTypes(k);
+  if (!rows.length) return el('p',{class:'muted'}, 'Question types: no quiz answers yet this week.');
+  const worst = rows.find(r => r[2] >= 3 && r[3] < 75);
+  return el('div',{class:'week-skills'},
+    el('h3',{}, '🧠 Question types this week'),
+    ...rows.map(([t, r, n, pct]) => { const b = before[t], bp = b && b[1] ? Math.round(b[0] / b[1] * 100) : null;
+      return el('div',{class:'ws-row' + (pct < 60 ? ' bad' : pct < 80 ? ' mid' : ' good')},
+        el('span',{class:'ws-name'}, QTYPE_NAME[t] + (focus.includes(t) ? '  🎯' : '')),
+        el('span',{class:'ws-bar'}, el('i',{style:`width:${pct}%`})),
+        el('b',{}, `${r}/${n} · ${pct}%`),
+        el('span',{class:'muted'}, bp == null ? '' : pct > bp ? `▲ from ${bp}%` : pct < bp ? `▼ from ${bp}%` : 'same')); }),
+    el('p',{class:'muted small'}, focus.length ? `🎯 = the game is giving ${name} extra questions of this kind (about 2 in every quiz) until it improves; other kinds stay mixed in.` : `No weak spots right now, so quizzes stay evenly mixed.`),
+    worst ? el('p',{}, el('b',{}, `Try at home (${QTYPE_NAME[worst[0]]}): `), QTYPE_HELP[worst[0]]) : null);
 }
 
 function screenParent(which){
@@ -8616,14 +8809,14 @@ function screenWorkbook(){
   stopAll();
   if (!window.WB) return screenHome('Workbook is not ready yet. Refresh the page.');
   const W = wbState(), lv = W.lvl, last = W.hist[W.hist.length - 1];
-  const setLvl = d => { W.lvl = Math.max(1, Math.min(WB.MAX_LEVEL, W.lvl + d)); save(); screenWorkbook(); };
+  const setLvl = d => screenPin(() => { setKid(kid); W.lvl = Math.max(1, Math.min(WB.MAX_LEVEL, W.lvl + d)); save(); screenWorkbook(); });   // grown-ups only
   show(el('div',{class:'screen v2'},
     el('div',{class:'topbar'}, el('button',{class:'btn ghost small', onclick:()=>screenHome()}, '← Back'), el('div',{class:'pageinfo'}, '📓 Workbook'), el('div',{style:'width:80px'})),
     el('div',{class:'card v2-intro'},
       el('div',{class:'v2-big-e'}, WB.LEVEL_ICONS[lv]),
       el('h1',{class:'title'}, 'Workbook · Level ' + lv),
       el('p',{}, el('b',{}, WB.LEVEL_NAMES[lv]), ' · ' + W.sets + (W.sets === 1 ? ' set' : ' sets') + ' done · ' + W.stars + ' ⭐ earned here'),
-      el('p',{class:'muted'}, '10 quick questions. Get 8 right to move up a level. Every right answer on the first try earns a ⭐.'),
+      el('p',{class:'muted'}, '10 quick questions. Get 8 right to move up a level. Stars for your first 2 sets each day: read stories for the big rewards!'),
       last ? el('p',{class:'muted'}, 'Last set: ' + last.score + ' / ' + last.n + ' at Level ' + last.lvl) : null,
       el('button',{class:'btn big', onclick:()=>{ beep('tap'); wbPlay(); }}, '▶ Start'),
       el('div',{class:'row center', style:'margin-top:14px;gap:8px'},
@@ -8632,11 +8825,19 @@ function screenWorkbook(){
         el('button',{class:'btn small gray', disabled: lv >= WB.MAX_LEVEL ? true : null, onclick:()=>setLvl(1)}, '⬆ Harder')))));
 }
 function wbPlay(){
-  const W = wbState(), lvl = W.lvl, items = WB.session(lvl, W.seen, 10);
+  const W = wbState(), lvl = W.lvl;
+  // lean on the same skills the story quizzes show are weak
+  const WB_KINDS = { detail:['whfind'], why:['pass'], infer:['tf','pass'], craft:['cloze'], bigidea:['pass'], evidence:['tf'], sequence:['order'] };
+  const boost = [...new Set(weakTypes().slice(0, 2).flatMap(t => WB_KINDS[t] || []))];
+  const items = WB.session(lvl, W.seen, 10, boost);
   let i = 0, right = 0, earned = 0;
   const finish = () => {
-    const n = items.length, bonus = right === n ? 5 : right >= 8 ? 3 : 0;
-    earned += bonus; K.stars += earned; W.stars += earned; W.sets++;
+    const n = items.length, bonus = right === n ? 3 : right >= 8 ? 2 : 0;
+    // a story is worth more than a drill: 1 ⭐ per 2 first-try answers + bonus, and only the first 2 sets each day pay out
+    if (W.day !== todayStr()){ W.day = todayStr(); W.paid = 0; }
+    const pays = W.paid < 2; W.paid += 1;
+    earned = pays ? Math.floor(earned / 2) + bonus : 0;
+    K.stars += earned; W.stars += earned; W.sets++;
     let msg = '', nl = lvl;
     if (right >= 8 && lvl < WB.MAX_LEVEL){ nl = lvl + 1; msg = '🎉 Level up! ' + WB.LEVEL_ICONS[nl] + ' ' + WB.LEVEL_NAMES[nl]; }
     else if (right >= 8) msg = '👑 Top level and still crushing it!';
@@ -8647,7 +8848,7 @@ function wbPlay(){
     show(el('div',{class:'screen v2 center'}, el('div',{class:'card v2-intro'},
       el('div',{class:'v2-big-e'}, right >= 8 ? '🏆' : '⭐'),
       el('h1',{class:'title'}, right + ' / ' + n + ' right'),
-      el('p',{}, '+' + earned + ' ⭐' + (bonus ? ' (includes a +' + bonus + ' bonus)' : '')),
+      el('p',{}, earned ? '+' + earned + ' ⭐' + (bonus ? ' (includes a +' + bonus + ' bonus)' : '') : 'Workbook stars are done for today. Read a story to earn more ⭐!'),
       el('p',{class:'big-msg'}, msg),
       el('button',{class:'btn big', onclick:()=>wbPlay()}, 'Next set ▶'),
       el('button',{class:'btn gray', onclick:()=>screenWorkbook()}, 'Workbook home'),
@@ -8689,7 +8890,7 @@ function wbPlay(){
   step();
 }
 
-if (navigator.webdriver) window.__sb = { expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, fairOpts: (...a) => fairOpts(...a), quizPool: (...a) => quizPool(...a), finishQuiz: (...a) => finishQuiz(...a), QTYPE: q => QTYPE(q), getDB: () => DB, GEAR_SETS, GEAR_SLOTS, bossArt, BOSSES, screenChests: () => screenChests(), run: (n, ...a) => ({ screenReport, screenTower, screenBuild, screenListen, screenPlayers, screenHome, screenArmory, screenShop: typeof screenShop === "function" ? screenShop : null, screenWorkbook, wbPlay }[n])(...a), screenTrophies: () => screenTrophies(), openChest: t => openChest(t), screenTownSquare: () => screenTownSquare(), screenWorld: () => screenWorld(), screenStables: () => screenStables(), screenChests: () => screenChests(), weaponIcon: (i, s) => weaponIcon(i, s) };
+if (navigator.webdriver) window.__sb = { getRun: () => run, expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, fairOpts: (...a) => fairOpts(...a), quizPool: (...a) => quizPool(...a), finishQuiz: (...a) => finishQuiz(...a), QTYPE: q => QTYPE(q), getDB: () => DB, GEAR_SETS, GEAR_SLOTS, bossArt, BOSSES, screenChests: () => screenChests(), run: (n, ...a) => ({ screenReport, screenTower, screenBuild, screenListen, screenPlayers, screenHome, screenArmory, screenShop: typeof screenShop === "function" ? screenShop : null, screenWorkbook, wbPlay }[n])(...a), screenTrophies: () => screenTrophies(), openChest: t => openChest(t), screenTownSquare: () => screenTownSquare(), screenWorld: () => screenWorld(), screenStables: () => screenStables(), screenChests: () => screenChests(), weaponIcon: (i, s) => weaponIcon(i, s) };
 mountEpicBg(); setInterval(mountEpicBg, 10 * 60 * 1000);
 if (navigator.webdriver) window.__landing = () => screenFamilyLogin();
 /* ======================= STORYBORNE 2.0: adaptive curriculum UI =======================
@@ -9458,17 +9659,69 @@ const QTYPE = q => { q = String(q).toLowerCase();
   if (/mean here|most nearly mean|who is telling|who tells|author (use|include|start|begin|chose)|why does the (story|chapter) (start|begin|end)/.test(q)) return 'craft';
   if (/what does .{1,30} mean/.test(q)) return 'craft';
   if (/prove|which sentence|evidence|how do you know|exactly what the story says/.test(q)) return 'evidence';
-  if (/most likely|probably|predict|infer|can you tell|hint|will happen|why do you think|what kind of|not happen/.test(q)) return 'infer';
+  if (/most likely|probably|predict|infer|can you tell|hint|will happen|do you think|what kind of|not happen|show about|says about|tell you about|how (did|does|do|was|is) .{1,40}(feel|felt)|feel(s)? about|what word (best )?describes/.test(q)) return 'infer';   // feelings and traits read between the lines
   if (/^why|because|cause|what made|feel|felt|change/.test(q)) return 'why';
   if (/first|last|story order|before|after/.test(q)) return 'sequence';
   return 'detail'; };
 const QTYPE_NAME = { detail:'Key details', why:'Why / cause & effect', infer:'Inference', craft:"Author's craft (words, narrator)", bigidea:'Big idea / theme', evidence:'Proving it with the text', sequence:'Order of events' };
 function skillLog(type, ok){
   try { K.skillStats = K.skillStats || {}; const r = K.skillStats[type] || (K.skillStats[type] = { r:0, t:0, last:[] });
-    r.t++; if (ok) r.r++; r.last = [ok ? 1 : 0].concat(r.last || []).slice(0, 20); } catch(e){}
+    r.t++; if (ok) r.r++; r.last = [ok ? 1 : 0].concat(r.last || []).slice(0, 20);
+    // dated log for the weekly report: K.skillDays[date][type] = [right, total], last 28 days
+    const D = K.skillDays = K.skillDays || {}, d = todayStr(), e = (D[d] = D[d] || {})[type] = (D[d][type] || [0, 0]);
+    e[1]++; if (ok) e[0]++;
+    Object.keys(D).sort().slice(0, -28).forEach(x => delete D[x]); } catch(e){}
+}
+/* What each reader needs to practice: a need score per question type from the last 20 answers of that type.
+   Few answers yet = a little need (we want to see it), many misses = a lot. Returns [[type, need, pct, n], ...] neediest first. */
+function skillNeeds(k){
+  k = k || K; const st = (k && k.skillStats) || {};
+  return Object.keys(QTYPE_NAME).map(t => { const r = st[t] || {}, last = (r.last || []).slice(0, 12), n = last.length, right = last.reduce((a, b) => a + b, 0);
+      const acc = (right + 1.6) / (n + 2);                      // smoothed: a new type starts near 80%
+      return [t, Math.max(0, .92 - acc) + (n < 4 ? .08 : 0), n ? Math.round(right / n * 100) : null, n]; })
+    .sort((a, b) => b[1] - a[1]);
+}
+const weakTypes = k => skillNeeds(k).filter(x => x[1] >= .2 && x[3] >= 4).map(x => x[0]);   // types the reader is really missing
+/* inference from clues: the story SHOWS a feeling ("hung his head", "stomped") without naming it; the reader works it out */
+const FEEL_CUES = [
+  [/\b(grinned|smiled|beamed|cheered|clapped|laughed|giggled|danced|jumped up and down|whooped)\b/i, 'Happy'],
+  [/\b(cried|sobbed|sniffled|hung (his|her|its|their) heads?|sighed|drooped|tears?)\b/i, 'Sad'],
+  [/\b(stomped|glared|huffed|growled|slammed|scowled|crossed (his|her) arms)\b/i, 'Angry'],
+  [/\b(shivered|trembled|froze|backed away|heart pounded|whimpered)\b/i, 'Scared'],
+  [/\b(yawned|rubbed (his|her) eyes|could barely keep)\b/i, 'Tired'],
+  [/\b(gasped|eyes went wide|jaw dropped|could not believe)\b/i, 'Surprised']
+];
+function feelingQ(story, used){
+  const names = (() => { try { return storyNames(story.text); } catch(e){ return []; } })();
+  for (const sn of shuffle(storySentences(story.text))){
+    if (/\b(happy|sad|angry|mad|scared|afraid|tired|surprised|excited|upset|worried|disappoint\w*|nervous|proud|lonely|jealous|grumpy|frustrat\w*|relie\w*|goodbye|miss(ed)? (him|her|them))\b/i.test(sn)) continue;   // the feeling must be shown, not named
+    const hit = FEEL_CUES.find(([re]) => re.test(sn)); if (!hit) continue;
+    // the character must be the one doing it: their name opens the sentence (after "Then," / "Finally," ...) right before the clue
+    const m = /^(?:(?:then|finally|suddenly|at last|soon|now|but|and|so|when [^,]+),\s*)?((?:(?:Master|Captain|Mr\.?|Mrs\.?|Ms\.?|Miss|Lord|Lady|Dr\.?|Nana|Grandpa|Grandma|Uncle|Aunt)\s+)?[A-Z][a-z]+)\b([^.!?]*)/.exec(tidy(sn));
+    if (!m || !names.some(n => m[1].endsWith(n)) || m[2].split(/\s+/).length > 6 && !hit[0].test(m[2].split(/\s+/).slice(0, 6).join(' '))) continue;
+    const who = m[1], q = `The story says: “${tidy(sn)}” How does ${who} feel?`; if (used.has(q)) continue;
+    const close = { Happy:['Surprised'], Surprised:['Happy','Scared'], Scared:['Surprised'], Sad:['Tired'], Tired:['Sad'], Angry:[] }[hit[1]] || [];   // never two answers that could both be right
+    const wrong = shuffle(FEEL_CUES.map(x => x[1]).filter(f => f !== hit[1] && !close.includes(f))).slice(0, TK === 'son' ? 2 : 3);
+    return { q, fixed:true, opts: shuffle([hit[1]].concat(wrong).map(t => ({ t, right: t === hit[1] }))) };
+  }
+  return null;
+}
+/* extra questions of a given type for this story, when its own questions don't have enough of that kind */
+function questionsOfType(type, story, have){
+  const out = [], used = new Set(have.map(x => x.q));
+  (story.qs || []).forEach(([q, o, a]) => { if (QTYPE(q) === type && !used.has(q)) out.push({ q, opts: shuffle(o.map((t, k) => ({ t, right: k === a }))) }); });
+  if (type === 'craft'){ const c = craftQ(story); if (c && !used.has(c.q)) out.push(c); }
+  if (type === 'infer'){ const q = feelingQ(story, used); if (q) out.push(q); }
+  if (type === 'sequence'){
+    const sn = storySentences(story.text).filter(x => !/["“”]/.test(x)), n = sn.length;
+    if (n >= 4){ const picks = [sn[Math.floor(n * .1)], sn[Math.floor(n * .5)], sn[Math.min(n - 1, Math.floor(n * .85))]];
+      if (new Set(picks).size === 3){ const last = Math.random() < .5;
+        out.push({ q: last ? 'Which of these happened LAST in the story?' : 'Which of these happened FIRST in the story?', opts: shuffle(picks.map((t, i) => ({ t: tidy(t), right: last ? i === 2 : i === 0 }))) }); } }
+  }
+  return shuffle(out);
 }
 function fairOpts(item, story, pool){
-  if (!item || item.order || !item.opts) return item;
+  if (!item || item.order || item.fixed || !item.opts) return item;
   const R = item.opts.find(o => o.right); if (!R) return item;
   const len = R.t.length, wrong = item.opts.filter(o => !o.right); if (!wrong.length) return item;
   const maxW = Math.max(...wrong.map(o => o.t.length)), minW = Math.min(...wrong.map(o => o.t.length));
@@ -9521,6 +9774,22 @@ function finishQuiz(qs, story){
     if (big){ const [q, o, a] = big, i = swapAt(); out[i] = fairOpts({ q, opts: shuffle(o.map((t, k) => ({ t, right: k === a }))) }, story, pool); types[i] = 'bigidea'; }
   }
   if (!types.includes('craft')){ const c = craftQ(story); if (c){ const i = swapAt(); out[i] = c; types[i] = 'craft'; } }
+  // practice what they miss: the weakest type gets 2 questions, the next weakest 1; the rest of the quiz stays mixed
+  try {
+    const weak = weakTypes(), pool2 = (() => { try { return quizPool(TK); } catch(e){ return null; } })();
+    weak.slice(0, 2).forEach((t, rank) => {
+      const want = rank === 0 ? 2 : 1;
+      let haveN = types.filter(x => x === t).length;
+      const cands = questionsOfType(t, story, out);
+      while (haveN < want && cands.length){
+        // replace a question of the most repeated strong type, never the only one of its kind
+        const counts = {}; types.forEach(x => counts[x] = (counts[x] || 0) + 1);
+        const i = types.map((x, j) => [x, j]).filter(([x]) => !weak.includes(x) && counts[x] > 1).map(([, j]) => j)[0] ?? types.map((x, j) => [x, j]).filter(([x]) => !weak.includes(x) && x !== 'bigidea').map(([, j]) => j)[0];
+        if (i == null) break;
+        out[i] = fairOpts(cands.shift(), story, pool2); types[i] = t; haveN++;
+      }
+    });
+  } catch(e){ console.warn('adaptive quiz', e); }
   return out;
 }
 // grown-ups: which kinds of thinking are strong or weak
@@ -9661,7 +9930,7 @@ function paintedHeroCard(h, redraw){
    heroes/<kid>_t<N>_mask.png marks hair (red), skin (green), irises (blue). Each pixel keeps its painted light and
    shade (its brightness relative to the original colour) and takes the new colour. */
 function heroTintInfo(){ return {"gia_t0": {"hair": "#b73a9f", "skin": "#ffa673", "eyes": "#b51c92", "face": [152, 73, 102, 99]}, "gia_t1": {"hair": "#923a80", "skin": "#e87d56", "eyes": "#ad198a", "face": [203, 73, 104, 102]}, "gia_t7": {"hair": "#913d8f", "skin": "#f59c80", "eyes": "#8b2c70", "face": [177, 70, 102, 99]}, "miles_t0": {"hair": "#562d2d", "skin": "#ffb06b", "eyes": "#096caa", "face": [200, 65, 110, 103]}, "miles_t1": {"hair": "#4c311f", "skin": "#ffb772", "eyes": "#0a6d9e", "face": [148, 66, 110, 103]}, "miles_t4": {"hair": "#3d2726", "skin": "#f5a576", "eyes": "#1d79a0", "face": [201, 57, 113, 106]}}; }   // a function so it works before this line runs (heroes draw during startup)
-function tintKey(t){ return t ? ['hair','skin','eyes','freckles'].map(k => t[k] || '').join('|') : ''; }
+function tintKey(t){ return t ? ['hair','skin','eyes','freckles','outfit'].map(k => t[k] || '').join('|') : ''; }
 function tintedHero(pic, t){
   const tintDone = tintedHero.done || (tintedHero.done = {}), tintBusy = tintedHero.busy || (tintedHero.busy = {});
   const key = tintKey(t), info = heroTintInfo()[pic.replace(/^heroes\/|\.png$/g, '')];
@@ -9673,6 +9942,34 @@ function tintedHero(pic, t){
       document.querySelectorAll('image').forEach(im => { if (im.getAttribute('href') === id) im.setAttribute('href', url); });
     }).catch(() => { tintDone[id] = pic; }); }
   return id;   // the plain painting shows for a moment, then swaps to the recolored one
+}
+// clothes recolor: pixels outside the hair/skin/eye mask that carry colour move to the set's hues (dark half -> main colour,
+// light half -> second colour), keeping the painted light and shade. Outlines, greys and near-whites stay.
+// clothes recolor: each painted part keeps its own role. Original hue bands map to the set's colours so the outfit
+// stays multi-coloured: cloak/coat -> main colour, tunic/leather -> second colour, gold/metal -> trim, bright glows -> gem.
+// Painted light and shade are kept. Outlines, greys and near-whites stay.
+function outfitRecolor(p, m, cols){
+  const hsl = (r, g, b) => { r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2; let h = 0, s = 0;
+    if (mx !== mn){ const d = mx - mn; s = l > .5 ? d / (2 - mx - mn) : d / (mx + mn); h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h /= 6; } return [h, s, l]; };
+  const rgb = (h, s, l) => { if (!s) return [l, l, l].map(v => v * 255); const f = (p0, q, t) => { if (t < 0) t += 1; if (t > 1) t -= 1; return t < 1/6 ? p0 + (q - p0) * 6 * t : t < 1/2 ? q : t < 2/3 ? p0 + (q - p0) * (2/3 - t) * 6 : p0; };
+    const q = l < .5 ? l * (1 + s) : l + s - l * s, p0 = 2 * l - q; return [f(p0, q, h + 1/3), f(p0, q, h), f(p0, q, h - 1/3)].map(v => v * 255); };
+  const hx = c => hsl(...[1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)));
+  const [MAIN, SEC, TRIM, GEM] = [0, 7, 14, 21].map(i => hx(cols.slice(i, i + 7)));
+  // hue band -> role: red/pink 0 main, orange/brown 1 second, gold/yellow 2 trim, green 0 main, cyan/blue 1 second, purple 0 main
+  const roleOf = h => h < .04 || h >= .9 ? 0 : h < .11 ? 1 : h < .18 ? 2 : h < .45 ? 0 : h < .72 ? 1 : 0;
+  const ROLES = [MAIN, SEC, TRIM];
+  for (let i = 0; i < p.length; i += 4){
+    if (p[i + 3] < 40 || m[i] + m[i + 1] + m[i + 2] > 30) continue;
+    const [h, s, l] = hsl(p[i], p[i + 1], p[i + 2]);
+    if (s < .14 || l < .08 || l > .95) continue;
+    let r = roleOf(h);
+    if (r === 0 && l > .5) r = 1; else if (r === 1 && l < .26) r = 0;   // light plates of the main colour take the second colour, deep shadows the main
+    const glow = s > .55 && l > .62, T = glow ? GEM : ROLES[r];
+    // white/pale set colours (Celestial, Glacier): keep the paint light instead of greying it out
+    const ts = T[1] < .12 ? Math.max(T[1], .08) : T[1];
+    const ns = Math.min(1, s * .35 + ts * .65), nl = Math.min(.96, l * .62 + T[2] * .38 + (glow ? .08 : 0));
+    const out = rgb((T[0] + (h - .5) * .03 + 1) % 1, ns, nl); p[i] = out[0]; p[i + 1] = out[1]; p[i + 2] = out[2];
+  }
 }
 function makeTint(pic, info, t){
   const load = src => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = no; i.src = src; });
@@ -9691,6 +9988,7 @@ function makeTint(pic, info, t){
         for (let j = 0; j < 3; j++) p[i + j] = p[i + j] * (1 - w) + Math.min(255, q.to[j] * k) * w;
       }
     }
+    if (t.outfit) outfitRecolor(p, m, t.outfit);
     g.putImageData(d, 0, 0);
     if (t.freckles){ const [fx, fy, fw, fh] = info.face; g.fillStyle = 'rgba(130,64,36,.55)';
       [[.3, .66], [.7, .66]].forEach(([cx, cy]) => [[0,0],[-.06,-.03],[.06,-.02],[-.03,.04],[.04,.045],[-.09,.02],[.09,.025]].forEach(([dx, dy]) => {
