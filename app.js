@@ -5479,6 +5479,21 @@ function heroImgBody(img, size, glow){
     + `<g><animateTransform attributeName="transform" type="scale" values="1 1;1.008 1.016;1 1" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1" dur="${d}s" begin="${off}s" repeatCount="indefinite"/>`
     + `<g transform="translate(-100 -248)">${pic}</g></g></g></g>` + spark;
 }
+// the equipped weapon on the painted portrait: a legendary weapon, else the set weapon's painted icon; held upright at the hero's side
+function heroWeaponLayer(override = {}){ try { return heroWeaponLayer2(override); } catch(e){ return ''; } }   // art tables load later in the file
+function heroWeaponLayer2(override = {}){
+  const wpn = override.wpn !== undefined ? override.wpn : K.wpn;
+  let src = null, glow = '#fde68a';
+  if (wpn && LW_BY_ID[wpn] && hasArt('weapons', wpn)) { src = artURL('weapons', wpn); glow = '#fef3c7'; }
+  else {
+    const eq = Object.assign({}, heroState().eq, override.eq || {}), set = eq.weapon;
+    if (set && set !== 'traveler') src = gearArtFor(set, 'weapon');
+  }
+  if (!src) return '';
+  const fid = 'wg' + (++heroSeq);
+  return `<defs><filter id="${fid}" x="-40%" y="-20%" width="180%" height="140%"><feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="${glow}" flood-opacity=".75"/></filter></defs>`
+    + `<g class="hero-wpn" transform="rotate(-9 44 236)"><image href="${src}" x="4" y="70" width="80" height="168" preserveAspectRatio="xMidYMax meet" filter="url(#${fid})"/></g>`;
+}
 function heroSVG(size = 200, override = {}){
   if (HERO_CLASSIC) return heroSVGClassic(size, override);
   const img = avatarImgFor(override);
@@ -5486,7 +5501,7 @@ function heroSVG(size = 200, override = {}){
     const full = override.eq ? null : fullSetOn(), gem = full ? full.gem : '#c084fc';
     return `<svg viewBox="0 0 200 250" width="${size}" height="${size*1.25}" xmlns="http://www.w3.org/2000/svg" class="hero-svg hero-img" style="overflow:visible">`
       + `<ellipse cx="100" cy="244" rx="52" ry="7" fill="#000" opacity=".25"/>` + (full ? `<ellipse cx="100" cy="244" rx="46" ry="5" fill="none" stroke="${gem}" stroke-width="2" opacity=".8"/>` : '')
-      + heroImgBody(img, size, full ? gem : (heroKidKey() === 'daughter' ? '#e879f9' : '#5eead4')) + `</svg>`;
+      + heroImgBody(img, size, full ? gem : (heroKidKey() === 'daughter' ? '#e879f9' : '#5eead4')) + heroWeaponLayer(override) + `</svg>`;
   }
   const girl = heroKidKey() === 'daughter';
   const h = Object.assign({ skin: SKIN_TONES[1], hairColor: girl ? '#7c3aed' : '#1f1b18', hairStyle: girl ? 'short' : 'spiky', weapon: 'sword' }, K.hero || {}, override.hero || {});
