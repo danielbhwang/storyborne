@@ -3660,6 +3660,20 @@ Object.assign(WORLD_ART, {
 });
 Object.assign(TOWN_SVG, WORLD_ART);
 
+/* Tree Swing (Gia's idea): a painted tree with a rope swing; the buddy climbs on and swings */
+function treeSwingSVG(rider, big){
+  const amp = big ? 24 : 5, dur = big ? 1.6 : 3.2;
+  const seat = `<rect x="104" y="160" width="44" height="7" rx="3" fill="#a16207" stroke="#5c3a0a" stroke-width="2"/>`;
+  const ropes = `<line x1="110" y1="113" x2="110" y2="162" stroke="#f5deb3" stroke-width="2.6"/><line x1="142" y1="101" x2="142" y2="162" stroke="#f5deb3" stroke-width="2.6"/>`;
+  const who = rider ? rider.replace('<svg', '<svg x="102" y="118" width="48" height="48"') : '';
+  return `<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" class="painted-art tree-swing" style="width:2.6em;height:2.6em;display:block;overflow:visible">`
+    + `<image href="tree.webp" x="0" y="0" width="160" height="200" preserveAspectRatio="xMidYMax meet"/>`
+    + `<g>${ropes}${who}${seat}<animateTransform attributeName="transform" type="rotate" values="${amp} 126 107;${-amp} 126 107;${amp} 126 107" dur="${dur}s" repeatCount="indefinite" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1"/></g>`
+    + `<path d="M74 142 C92 118 112 104 152 98" stroke="#4a2c12" stroke-width="10" fill="none" stroke-linecap="round"/><path d="M74 142 C92 118 112 104 152 98" stroke="#7c4a1e" stroke-width="6" fill="none" stroke-linecap="round"/>`
+    + `<circle cx="110" cy="113" r="3.2" fill="#f5deb3"/><circle cx="142" cy="101" r="3.2" fill="#f5deb3"/></svg>`;   // a branch growing out of the trunk, with the rope knots
+}
+TOWN_SVG.treeswing = treeSwingSVG('');
+WORLD_ITEMS.push(['fun','treeswing','🌳','Tree Swing',30]);
 WORLD_ITEMS.push(
   ['dream','dreamhouse','🏩','Pink Dream Mansion',80], ['dream','herocar','🦇','Midnight Hero Car',70], ['dream','townhall','🏛️','Town Hall',50],
   ['dream','clocktower','🕰️','Clock Tower',35], ['dream','skyscraper','🏙️','Skyscraper',40], ['dream','apartments','🏢','Apartments',30], ['dream','cinema','🎬','Movie Theater',45],
@@ -4045,10 +4059,12 @@ function screenWorld(visitKid){
 
   // selection toolbar
   const tools = el('div',{class:'world-tools hidden'});
+  const swingBtn = el('button',{class:'btn small green hidden', onclick:()=>{ const it = selected(); if (!it || readOnly) return; goNow = it; pop('On my way! 🌳'); }},'🌳 Swing!');
   const selected = () => W.items.find(i => i.id === worldSel);
   const refreshSel = () => {
     Object.values(nodes).forEach(n => n.classList.toggle('sel', +n.dataset.id === worldSel));
     tools.classList.toggle('hidden', !selected());
+    swingBtn.classList.toggle('hidden', !(selected() && selected().k === 'treeswing'));
   };
   const act = fn => () => { const it = selected(); if (!it) return; fn(it); save(); const n = nodes[it.id];
     if (n){ n.style.fontSize = Math.round(64*it.s)+'px'; n.style.transform = it.f ? 'scaleX(-1)' : ''; n.style.zIndex = it.z || 1; } };
@@ -4056,6 +4072,7 @@ function screenWorld(visitKid){
     el('button',{class:'btn small', onclick:act(it => it.s = Math.min(4, +(it.s + 0.25).toFixed(2)))},'➕ Bigger'),
     el('button',{class:'btn small', onclick:act(it => it.s = Math.max(0.5, +(it.s - 0.25).toFixed(2)))},'➖ Smaller'),
     el('button',{class:'btn small', onclick:act(it => it.f = !it.f)},'↔️ Flip'),
+    swingBtn,
     el('button',{class:'btn small', onclick:act(it => it.z = Math.max(...W.items.map(i => i.z || 1)) + 1)},'⬆️ Front'),
     el('button',{class:'btn small red', onclick:async()=>{ const it = selected(); if (!it) return;
       // removing gives back only half of what the item cost; legendary and mythic items go back to the vault instead
@@ -4199,7 +4216,7 @@ function screenWorld(visitKid){
     setTimeout(() => { if (bubble.textContent === txt) bubble.classList.remove('show'); }, ms); };
   const pose = (cls, ms) => { avBody.classList.add(cls); return wsleep(ms).then(() => avBody.classList.remove(cls)); };
   const itemAct = (it, cls, ms) => { const n = nodes[it.id]; if (!n) return wsleep(ms); n.classList.add(cls); return wsleep(ms).then(() => n.classList.remove(cls)); };
-  const hide = async ms => { av.classList.add('away'); await wsleep(ms); av.classList.remove('away'); };
+  const hide = async (ms, during) => { av.classList.add('away'); await Promise.all([wsleep(ms), during ? during() : null]); av.classList.remove('away'); };
   const walkTo = async x => {
     x = Math.max(0, Math.min(WORLD_W - 120, Math.round(x)));
     const dist = Math.abs(x - ax); if (dist < 4) return;
@@ -4210,14 +4227,15 @@ function screenWorld(visitKid){
     await wsleep(secs * 1000);
     avBody.classList.remove('walking');
   };
-  const ctx = { pop, pose, itemAct, hide };
+  const ctx = { pop, pose, itemAct, hide, rider: () => avatarSVG(DB.kids[owner].avatar, 60, { bg:'none' }).replace(BG.none(), '') };   // no backdrop disc on the swing
+  let goNow = null;   // set by the toolbar's Swing! button
   const visit = async it => {
     const w = Math.round(64 * (it.s || 1)), fromLeft = it.x - 100 >= 0;
     await walkTo(fromLeft ? it.x - 100 : it.x + w - 20);
     if (!alive() || !W.items.includes(it)) return;
     setFace(fromLeft ? 1 : -1);
     const def = WORLD_BY_ID[it.k], cat = def ? def[0] : 'friends';
-    await (BUDDY_ACTS[it.k] || BUDDY_ACTS['@' + cat] || BUDDY_ACTS['@any'])(Object.assign({ it }, ctx));
+    await (BUDDY_ACTS[it.k] || BUDDY_ACTS['@' + cat] || BUDDY_ACTS['@any'])(Object.assign({ it, node: nodes[it.id] }, ctx));
   };
   const idle = [
     () => walkTo(ax + (Math.random() < .5 ? -1 : 1) * (150 + Math.random() * 350)),
@@ -4233,7 +4251,10 @@ function screenWorld(visitKid){
   (async () => {
     await wsleep(900);
     while (alive()){
-      if (W.items.length && Math.random() < 0.55) await visit(pick(W.items));
+      const swing = W.items.filter(i => i.k === 'treeswing');
+      if (goNow){ const it = goNow; goNow = null; await visit(it); }
+      else if (swing.length && Math.random() < 0.3) await visit(pick(swing));   // the buddy loves the swing
+      else if (W.items.length && Math.random() < 0.55) await visit(pick(W.items));
       else await pick(idle)();
       await wsleep(500 + Math.random() * 1200);
     }
@@ -4270,6 +4291,9 @@ const BUDDY_ACTS = {
   treasure: async c => { c.pop('💰✨'); await c.pose('jumping', 700); },
   fountain: async c => { c.pop('💦'); await c.itemAct(c.it, 'act-wiggle', 2400); },
   target: async c => { c.pop('🎯'); await c.pose('waving', 1200); c.pop('🎯✅'); await c.itemAct(c.it, 'act-wiggle', 1200); },
+  treeswing: async c => { if (!c.node) return; c.pop('🌳😄');
+    await c.hide(5600, async () => { c.node.innerHTML = treeSwingSVG(c.rider(), true); await wsleep(5400); if (c.node.isConnected) c.node.innerHTML = TOWN_SVG.treeswing; });
+    c.pop(pick(['Wheee! 😆','Again! 🤩','So high! 🌈'])); },
   slide: async c => { c.pop('🛝'); await c.pose('jumping', 700); await c.pose('sitting', 1400); c.pop('😄'); },
   ferris: async c => { c.pop('🎡'); await Promise.all([c.hide(3200), c.itemAct(c.it, 'act-spin', 3000)]); c.pop('😄'); },
   carousel: async c => { c.pop('🎠'); await Promise.all([c.hide(3200), c.itemAct(c.it, 'act-spin', 3000)]); c.pop('😄'); },
