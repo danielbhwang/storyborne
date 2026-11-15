@@ -353,6 +353,7 @@ function show(node){
   const root = $('#app'), h = node.querySelector && node.querySelector('h1'), sig = (node.className || '') + '|' + (h ? h.textContent : '');
   const keep = sig === show.sig ? { y: window.scrollY, inner: [...root.querySelectorAll('*')].filter(e => e.scrollTop > 0).map(e => [e.className, e.scrollTop]) } : null;
   show.sig = sig; root.innerHTML = ''; root.append(node);
+  document.documentElement.classList.toggle('vista-plaza', /plaza-screen/.test(node.className || ''));   // Town Square: the painted plaza vista behind the map
   if (keep){   // a button re-drew the same screen: stay where you were instead of jumping to the top
     const back = () => { window.scrollTo(0, keep.y); keep.inner.forEach(([c, t]) => { if (c){ const e = root.querySelector('.' + String(c).trim().split(/\s+/).join('.')); if (e) e.scrollTop = t; } }); };
     back(); requestAnimationFrame(back);
@@ -5523,7 +5524,8 @@ function avatarImgFor(override = {}){
   const who = kidId === 'daughter' && /^gia/i.test(kidName(kidId)) ? 'gia' : kidId === 'son' && /^miles/i.test(kidName(kidId)) ? 'miles' : null;
   const own = kidId ? paintedHeroOf(kidId) : null;   // a painting uploaded by a grown-up wins
   if (own) return own;
-  const base = who || (heroKidKey() === 'daughter' ? 'gia' : 'miles');   // everyone else wears the painted body for their style
+  if (!who) return null;   // the painted heroes ARE Gianna and Miles: other players get the drawn hero (or their own uploaded painting), never our kids' faces
+  const base = who;
   const tint = Object.assign({}, K.hero || {}, override.hero || {}).paintTint;
   const G = heroState(), eq = Object.assign({}, G.eq, override.eq || {}), ch = eq.chest && SET_BY_ID[eq.chest];
   const tier = ch ? Math.min(12, ch.tier) : 0;
@@ -5556,7 +5558,7 @@ function heroImgBody(img, size, glow, under = '', over = ''){
 }
 // the equipped weapon on the painted portrait: a legendary weapon, else the set weapon's painted icon; held upright at the hero's side
 /* paintings with an empty right fist: [fist x, fist y as fractions of the picture, width/height] */
-const HERO_HAND = {"gia_s_archmage": [0.35, 0.578, 0.639], "gia_s_celestial": [0.354, 0.584, 0.636], "gia_s_dragonlord": [0.344, 0.579, 0.638], "gia_s_ember": [0.36, 0.549, 0.55], "gia_s_frost": [0.336, 0.545, 0.568], "gia_s_glacier": [0.344, 0.579, 0.629], "gia_s_jade": [0.373, 0.556, 0.57], "gia_s_phoenix": [0.324, 0.579, 0.661], "gia_s_shadow": [0.351, 0.534, 0.634], "gia_s_squire": [0.31, 0.578, 0.543], "gia_s_starforge": [0.351, 0.538, 0.638], "gia_s_storm": [0.38, 0.56, 0.596], "gia_s_tempest": [0.339, 0.575, 0.642], "gia_s_traveler": [0.348, 0.548, 0.572], "miles_s_archmage": [0.357, 0.55, 0.824], "miles_s_celestial": [0.303, 0.575, 0.763], "miles_s_dragonlord": [0.32, 0.565, 0.808], "miles_s_ember": [0.286, 0.56, 0.716], "miles_s_frost": [0.309, 0.563, 0.755], "miles_s_glacier": [0.313, 0.526, 0.724], "miles_s_jade": [0.283, 0.576, 0.751], "miles_s_phoenix": [0.305, 0.58, 0.749], "miles_s_shadow": [0.289, 0.557, 0.722], "miles_s_squire": [0.281, 0.553, 0.658], "miles_s_starforge": [0.306, 0.575, 0.728], "miles_s_storm": [0.307, 0.562, 0.762], "miles_s_tempest": [0.301, 0.576, 0.771], "miles_s_traveler": [0.268, 0.549, 0.641]};
+const HERO_HAND = {"gia_s_archmage": [0.332, 0.524, 0.664], "gia_s_celestial": [0.288, 0.529, 0.546], "gia_s_dragonlord": [0.312, 0.524, 0.636], "gia_s_ember": [0.276, 0.521, 0.55], "gia_s_frost": [0.277, 0.521, 0.55], "gia_s_glacier": [0.329, 0.529, 0.661], "gia_s_jade": [0.275, 0.519, 0.549], "gia_s_phoenix": [0.258, 0.521, 0.541], "gia_s_shadow": [0.299, 0.519, 0.567], "gia_s_squire": [0.269, 0.519, 0.546], "gia_s_starforge": [0.285, 0.519, 0.557], "gia_s_storm": [0.272, 0.519, 0.549], "gia_s_tempest": [0.317, 0.516, 0.589], "gia_s_traveler": [0.348, 0.548, 0.572], "miles_s_archmage": [0.323, 0.507, 0.634], "miles_s_celestial": [0.352, 0.528, 0.587], "miles_s_dragonlord": [0.332, 0.512, 0.629], "miles_s_ember": [0.343, 0.522, 0.597], "miles_s_frost": [0.341, 0.523, 0.613], "miles_s_glacier": [0.323, 0.509, 0.629], "miles_s_jade": [0.342, 0.523, 0.595], "miles_s_phoenix": [0.325, 0.522, 0.621], "miles_s_shadow": [0.314, 0.522, 0.563], "miles_s_squire": [0.350, 0.534, 0.563], "miles_s_starforge": [0.343, 0.522, 0.607], "miles_s_storm": [0.33, 0.521, 0.604], "miles_s_tempest": [0.323, 0.505, 0.653], "miles_s_traveler": [0.268, 0.549, 0.641]};
 /* weapon pictures: [grip x, grip y as fractions, angle of the weapon in the picture (0 = straight up), width/height] */
 const WPN_GRIP = {"shadowfang": [0.276, 0.762, 29.7, 0.804], "wildwood": [0.627, 0.577, -1.3, 0.38], "weapon_tidecrest": [0.588, 0.856, -1.5, 0.283], "moonsilver": [0.72, 0.5, 0.0, 0.989], "ironclad": [0.497, 0.855, 0.6, 0.939], "crystalshard": [0.489, 0.79, -1.8, 0.407], "sunfeather": [0.286, 0.579, 3.9, 0.337], "voidbloom": [0.576, 0.854, -0.9, 0.839], "sunspire": [0.496, 0.822, 0.2, 0.307], "frostwail": [0.461, 0.74, -0.1, 0.26], "stormcaller": [0.492, 0.811, -0.3, 0.243], "emberfall": [0.68, 0.86, 0.0, 1.162], "twinmoon": [0.438, 0.857, -0.0, 0.153], "starforged": [0.668, 0.825, 0.0, 0.287], "glimmerblade": [0.586, 0.728, -0.1, 0.666], "dreamstaff": [0.518, 0.857, -0.6, 0.277], "thornbow": [0.514, 0.58, -0.9, 0.343], "magmaaxe": [0.562, 0.859, 0.7, 0.723], "traveler_sword": [0.78, 0.192, -151.8, 0.592], "traveler_staff": [0.162, 0.855, 27.6, 0.592], "squire_sword": [0.754, 0.221, -151.7, 0.596], "squire_staff": [0.172, 0.857, 26.7, 0.558], "ember_sword": [0.751, 0.227, -151.6, 0.583], "ember_staff": [0.176, 0.856, 25.9, 0.575], "frost_sword": [0.204, 0.785, 34.3, 0.725], "frost_staff": [0.18, 0.857, 26.2, 0.562], "storm_sword": [0.211, 0.782, 34.2, 0.725], "storm_staff": [0.151, 0.855, 23.6, 0.542], "jade_sword": [0.217, 0.773, 34.2, 0.725], "jade_staff": [0.504, 0.855, -0.1, 0.242], "shadow_sword": [0.5, 0.5, 0.0, 0.375], "shadow_staff": [0.493, 0.856, -0.0, 0.292], "starforge_sword": [0.492, 0.191, 180.0, 0.246], "starforge_staff": [0.498, 0.854, 1.2, 0.342], "celestial_sword": [0.492, 0.165, 180.0, 0.292], "celestial_staff": [0.485, 0.854, -1.7, 0.287], "tempest_sword": [0.493, 0.191, -180.0, 0.279], "tempest_staff": [0.489, 0.855, 0.6, 0.383], "phoenix_sword": [0.493, 0.196, 180.0, 0.287], "phoenix_staff": [0.497, 0.856, 0.4, 0.325], "glacier_sword": [0.492, 0.2, 180.0, 0.292], "glacier_staff": [0.493, 0.858, 0.1, 0.412], "dragonlord_sword": [0.49, 0.195, 179.9, 0.283], "dragonlord_staff": [0.499, 0.858, 0.2, 0.212]};
 const HAND_TILT = -24;   // held pointing up and out, away from the body
@@ -5574,7 +5576,8 @@ function heroHandWeapon(img, override = {}){
     const px = x0 + fx * dw, py = y0 + fy * dh;
     const L = dh * (/_staff|staff|tidecrest|bow|wildwood|sunfeather|shadow_sword/.test(src) ? .7 : .6);
     let wh = L, ww = wh * G[3];
-    if (ww > L * .8){ ww = L * .8; wh = ww / G[3]; }   // wide pictures (hammers, axes, crescents) are sized by their width
+    if (ww > L * .8){ ww = L * .8; wh = ww / G[3]; }
+    if (/moonsilver|twinmoon/.test(src)){ wh *= .55; ww *= .55; }   // crescent blades read huge at full size   // wide pictures (hammers, axes, crescents) are sized by their width
     const tf = `translate(${px.toFixed(1)} ${py.toFixed(1)}) rotate(${(HAND_TILT - G[2]).toFixed(1)}) translate(${(-G[0] * ww).toFixed(1)} ${(-G[1] * wh).toFixed(1)})`;
     const im = `<image href="${src}" width="${ww.toFixed(1)}" height="${wh.toFixed(1)}"/>`;
     const org = `transform-origin:${px.toFixed(1)}px ${py.toFixed(1)}px`, cid = 'fc' + (++heroSeq), fr = (dh * .034).toFixed(1);
@@ -7244,13 +7247,22 @@ function screenPractice(){
 /* ================= PARENT AREA ================= */
 function screenPin(after){
   stopAll();
-  let entered = '';
+  // first time a grown-up opens this: they choose their own PIN (the old 1234 default is never used)
+  const setup = !DB.pinSet && DB.pin === '1234' && !(navigator.webdriver && !/[?&]pinsetup=1/.test(location.search));
+  let entered = '', first = null;
   const dots = el('div',{class:'pin-dots'},'○○○○');
-  const msg = el('p',{class:'muted'},'Enter the grown-up PIN');
+  const msg = el('p',{class:'muted'}, setup ? 'Choose a 4-digit grown-up PIN. Kids should not know it.' : 'Enter the grown-up PIN');
   const pad = el('div',{class:'pad'});
   const press = d => {
     if (d === '⌫') entered = entered.slice(0,-1); else if (entered.length < 4) entered += d;
     dots.textContent = '●'.repeat(entered.length) + '○'.repeat(4-entered.length);
+    if (entered.length === 4 && setup){
+      const reset = t => { msg.textContent = t; entered = ''; setTimeout(()=>dots.textContent='○○○○', 300); };
+      if (first == null){ if (/^(\d)\1{3}$|^1234$|^0123$|^4321$/.test(entered)) return reset('That one is too easy to guess. Pick another.'); first = entered; return reset('Type the same PIN again to confirm.'); }
+      if (entered !== first){ first = null; return reset("They didn't match. Choose a PIN again."); }
+      DB.pin = entered; DB.pinSet = true; save(); msg.textContent = 'PIN saved ✓';
+      setTimeout(()=> after ? after() : screenPlayers(), 400); return;
+    }
     if (entered.length === 4){
       if (entered === DB.pin) setTimeout(()=> after ? after() : screenPlayers(), 150);
       else { msg.textContent = 'Not quite. Try again.'; entered = ''; setTimeout(()=>dots.textContent='○○○○', 300); }
@@ -7261,7 +7273,7 @@ function screenPin(after){
   document.body.className = 'parent';
   show(el('div',{class:'screen center', style:'align-items:center;justify-content:center'},
     el('div',{class:'card', style:'max-width:420px;width:100%;text-align:center'},
-      el('h2',{},'🔒 Grown-ups Only'), msg, dots, pad,
+      el('h2',{}, setup ? '🔐 Create your grown-up PIN' : '🔒 Grown-ups Only'), msg, dots, pad,
       el('button',{class:'btn small gray', style:'margin-top:18px', onclick:back},'Cancel'))));
 }
 
@@ -7551,7 +7563,7 @@ function screenParent(which){
         el('button',{class:'btn small blue', onclick:ev=>{ const v = parseInt(ev.currentTarget.previousSibling.value,10); if (v){ k.stars += v; save(); screenParent(which); } }},'Give stars'),
         el('button',{class:'btn small', onclick:ev=>{ const v = parseInt(ev.currentTarget.previousSibling.previousSibling.value,10); if (v){ k.cosmic = (k.cosmic||0) + v; save(); screenParent(which); } }},'Give 💫 Cosmic')),
       el('div',{class:'row'}, (()=>{ const i = el('input',{type:'number', placeholder:'New 4-digit PIN', inputmode:'numeric'}); return i; })(),
-        el('button',{class:'btn small blue', onclick:ev=>{ const v = ev.currentTarget.previousSibling.value.trim(); if (/^\d{4}$/.test(v)){ DB.pin = v; save(); status.textContent = 'PIN changed.'; ev.currentTarget.previousSibling.value=''; } else status.textContent = 'PIN must be 4 digits.'; }},'Change PIN'))),
+        el('button',{class:'btn small blue', onclick:ev=>{ const v = ev.currentTarget.previousSibling.value.trim(); if (/^\d{4}$/.test(v)){ DB.pin = v; DB.pinSet = true; save(); status.textContent = 'PIN changed.'; ev.currentTarget.previousSibling.value=''; } else status.textContent = 'PIN must be 4 digits.'; }},'Change PIN'))),
     el('div',{class:'card'},
       el('h2',{},'Back up / move progress'),
       el('p',{class:'muted'},'Progress lives on each iPad. Export here, then Import on another device to copy it over. (Recordings stay on this iPad.)'),
@@ -8501,7 +8513,16 @@ screenHome = function(msg){
 PZ_BUILDINGS.push(
   { id:'hall',  x:420,  y:650, w:170, h:150, wall:'#e7e0f0', roof:'#4c1d95', trim:'#c4b5fd', kind:'tower', icon:'🏰', name:'Great Hall', sub:'Houses & owl mail', go:() => screenGreatHall() },
   { id:'wands', x:1130, y:780, w:170, h:130, wall:'#efe6f7', roof:'#6d28d9', trim:'#fbbf24', kind:'gable', icon:'🪄', name:'Wandwright', sub:'Wands', go:() => screenWandShop() });
+
 PZ_BUILDINGS.filter(b => b.id === 'hall' || b.id === 'wands').forEach(b => { b.x = Math.round(b.x*PZ_S); b.y = Math.round(b.y*PZ_S); });
+/* golden-hour plaza painting (ground.webp, 1448x1086, top-down): each building stands on one of its 8 stone pads,
+   the portal and the Trophy Tower sit where the paths leave the square. Points are in picture pixels. */
+(function placeOnPads(){
+  const k = Math.max(PZ_W / 1448, PZ_H / 1086), oy = (PZ_H - 1086 * k) / 2, ox = (PZ_W - 1448 * k) / 2;
+  const P = { townhall:[722,250], library:[385,330], shop:[1057,330], hall:[225,535], wands:[1222,535], armory:[370,765], heroes:[1083,765], roost:[722,870], trophy:[95,470], portal:[722,1035] };
+  PZ_BUILDINGS.forEach(b => { const p = P[b.id]; if (p){ b.x = Math.round(ox + p[0] * k); b.y = Math.round(oy + p[1] * k); } });
+  PZ_C.x = Math.round(ox + 722 * k); PZ_C.y = Math.round(oy + 455 * k);
+})();
 
 /* ======================= EXPERT QUESTIONS (Gia from Rank 5) =======================
    Harder than Challenge: who-said-it, order of 4 events, spot the exact sentence (changed details),
@@ -8914,7 +8935,7 @@ function wbPlay(){
   step();
 }
 
-if (navigator.webdriver) window.__sb = { getRun: () => run, expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, fairOpts: (...a) => fairOpts(...a), quizPool: (...a) => quizPool(...a), finishQuiz: (...a) => finishQuiz(...a), QTYPE: q => QTYPE(q), getDB: () => DB, GEAR_SETS, GEAR_SLOTS, bossArt, BOSSES, screenChests: () => screenChests(), run: (n, ...a) => ({ screenReport, screenTower, screenBuild, screenListen, screenPlayers, screenHome, screenArmory, screenShop: typeof screenShop === "function" ? screenShop : null, screenWorkbook, wbPlay }[n])(...a), screenTrophies: () => screenTrophies(), openChest: t => openChest(t), screenTownSquare: () => screenTownSquare(), screenWorld: () => screenWorld(), screenStables: () => screenStables(), screenChests: () => screenChests(), weaponIcon: (i, s) => weaponIcon(i, s) };
+if (navigator.webdriver) window.__sb = { getRun: () => run, expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, fairOpts: (...a) => fairOpts(...a), quizPool: (...a) => quizPool(...a), finishQuiz: (...a) => finishQuiz(...a), QTYPE: q => QTYPE(q), getDB: () => DB, GEAR_SETS, GEAR_SLOTS, bossArt, BOSSES, screenChests: () => screenChests(), run: (n, ...a) => ({ screenReport, screenTower, screenBuild, screenListen, screenPlayers, screenHome, screenArmory, screenShop: typeof screenShop === "function" ? screenShop : null, screenWorkbook, wbPlay, screenTownSquare }[n])(...a), screenTrophies: () => screenTrophies(), openChest: t => openChest(t), screenTownSquare: () => screenTownSquare(), screenWorld: () => screenWorld(), screenStables: () => screenStables(), screenChests: () => screenChests(), weaponIcon: (i, s) => weaponIcon(i, s) };
 mountEpicBg(); setInterval(mountEpicBg, 10 * 60 * 1000);
 if (navigator.webdriver) window.__landing = () => screenFamilyLogin();
 /* ======================= STORYBORNE 2.0: adaptive curriculum UI =======================

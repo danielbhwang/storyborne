@@ -2191,3 +2191,7 @@ body.zoom-lock .float-back{ display:none; }
 .ws-bar i{ display:block; height:100%; background:#22c55e; border-radius:6px; }
 .ws-row.mid .ws-bar i{ background:#f59e0b; } .ws-row.bad .ws-bar i{ background:#ef4444; }
 @media (max-width:600px){ .ws-row{ grid-template-columns:1fr auto; } .ws-row .ws-bar, .ws-row .muted{ display:none; } }
+/* Town Square backdrop: the golden-hour plaza painting behind the map */
+html.vista-plaza #epic-bg{ background:#f6c48a url(plaza_vista.webp) center 35%/cover no-repeat; }
+html.vista-plaza #epic-bg > svg, html.vista-plaza #epic-bg .tod-tint{ opacity:0; }
+html.vista-plaza #epic-bg .eb-shade{ opacity:.35; }
