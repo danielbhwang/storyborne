@@ -343,8 +343,21 @@ function playerIds(withWizard){ return Object.keys(DB.players || {}).filter(id =
   .sort((a, b) => (DB.players[a].order || 50) - (DB.players[b].order || 50)); }
 const TRACK_INFO = { daughter:{ name:'Dragon Academy', sub:'Dragon Academy · Sunny Day Club', ages:'Ages 6–9 · chapter books, read quietly', word:'Rank', icon:'🐉' },
                      son:{ name:'Biscuit & Pals', sub:'Biscuit & Pals · Detective Biscuit', ages:'Ages 4–6 · read out loud', word:'Level', icon:'🐲' } };
+/* Miles collects the painted dragons too: his track uses the same 25 dragons, and any old Pocket Pals he found
+   become dragons one for one, so his collection count stays the same */
+(function dragonsForEveryone(){
+  if (!TRACKS.son || !TRACKS.daughter) return;
+  TRACKS.son.rewards = TRACKS.daughter.rewards.map(r => r.slice());
+})();
+function migrateDragons(k){
+  if (!k || !k.collection || k.dragonsV2) return;
+  const names = TRACKS.daughter.rewards.map(r => r[1]), have = k.collection.filter(n => names.includes(n));
+  const old = k.collection.filter(n => !names.includes(n)).length;
+  names.filter(n => !have.includes(n)).slice(0, old).forEach(n => have.push(n));
+  k.collection = have; k.dragonsV2 = 1;
+}
 function setKid(k){
-  kid = k; K = DB.kids[k]; TK = trackOf(k); T = TRACKS[TK]; if (k !== 'dev') DB.lastKid = k; save();
+  kid = k; K = DB.kids[k]; TK = trackOf(k); T = TRACKS[TK]; if (K) migrateDragons(K); if (k !== 'dev') DB.lastKid = k; save();
   document.body.className = 'theme-' + TK + (k === 'dev' ? ' wizard-mode' : '');
 }
 function levelDef(n){ return T.levels[Math.min(Math.max(n,1), T.levels.length) - 1]; }
@@ -1215,10 +1228,10 @@ function screenHome(msg){
       book ? el('div',{class:'card next-card series-card'},
         el('div',{class:'series-tag'},'📚 Chapter Books'), COUNTS_TAG(),
         el('h2',{}, book.emoji + ' ' + book.title),
-        el('p',{}, `Chapter ${bs.ch + 1} of ${book.chapters.length}: ${book.chapters[bs.ch].title}`),
+        (() => { const n = book.chapters.length, c = Math.min(bs.ch, n - 1); return el('p',{}, bs.ch >= n ? `Finished all ${n} chapters! 🎉 Read it again or pick a new book.` : `Chapter ${c + 1} of ${n}: ${book.chapters[c].title}`); })(),
         el('div',{class:'chapter-dots', style:'margin:-8px 0 14px'}, ...book.chapters.map((_, i) => el('span',{class:'dot' + (i < bs.ch ? ' on' : '')}))),
         el('div',{class:'row'},
-          el('button',{class:'btn big', onclick:()=>{ beep('tap'); startChapter(book, bs.ch); }}, bs.ch ? '▶ Keep reading' : '▶ Start'),
+          el('button',{class:'btn big', onclick:()=>{ beep('tap'); startChapter(book, bs.ch >= book.chapters.length ? 0 : bs.ch); }}, bs.ch >= book.chapters.length ? '🔁 Read again' : bs.ch ? '▶ Keep reading' : '▶ Start'),
           el('button',{class:'btn small blue', onclick:()=>{ beep('tap'); screenBookshelf(); }},'📚 Bookshelf'))) : null,
       el('div',{class:'card next-card spell-card'},
         el('div',{class:'series-tag'},'✏️ Spelling Check'),
@@ -1442,9 +1455,10 @@ const bookOpen = b => b.from <= K.level + 1;
 function currentBook(){
   const open = BOOKS.filter(bookOpen);
   const atRank = b => b.from <= K.level && K.level <= b.from + 1;
-  return BOOKS.find(b => b.id === K.currentBook && bookOpen(b))
+  const done = b => bookState(b.id).finished || bookState(b.id).ch >= b.chapters.length;
+  return BOOKS.find(b => b.id === K.currentBook && bookOpen(b) && !done(b))   // a finished book never stays "current"
     || open.filter(b => b.featured && !bookState(b.id).finished).sort((x, y) => y.from - x.from)[0] // the newest featured book comes up next
-    || open.find(b => bookState(b.id).ch > 0)
+    || open.find(b => bookState(b.id).ch > 0 && !done(b))
     || open.find(b => atRank(b) && !bookState(b.id).finished)
     || open.find(b => !bookState(b.id).finished)
     || open[0];
@@ -2690,7 +2704,7 @@ async function giveReward(){
     K.collection.push(n); save();
     confetti(lv ? 140 : 50); beep('star'); say(`You found ${n}! It joined your creature book!`);
     await modal(el('div',{}, el('div',{class:'big-e'}, e), el('h2',{}, (lv ? '✨ LEGENDARY! ' : '') + 'You found ' + n + '!'),
-      el('p',{},'A new Pocket Pal joined your Creature Book!')), [['Yay! ▶','',1]]);
+      el('p',{}, 'A new dragon joined your Dragon Book!')), [['Yay! ▶','',1]]);
   }
 }
 
@@ -5099,7 +5113,7 @@ function levelUpCinematic(level, opts = {}){
     if (L && L.stories && L.stories.length) rewards.push(['📜', `${L.stories.length} new ${girl ? 'chapters' : 'stories'}`, L.stories.slice(0, 2).map(x => x.title).join(' · ')]);
     if (S) rewards.push(['🛡️', `${S.name} armor revealed`, B ? `Beat ${B.name} to win the pieces` : 'Win the pieces in battle']);
     if (level === AVATAR_UNLOCK_LEVEL) rewards.push(['🐾', 'New reading buddy', 'Find it in the Star Shop']);
-    if (typeof legendaryAt === 'function' && legendaryAt(level)) rewards.push(['✨', `Legendary ${girl ? 'dragon' : 'Pocket Pal'}`, 'It can now appear when you read']);
+    if (typeof legendaryAt === 'function' && legendaryAt(level)) rewards.push(['✨', `Legendary dragon`, 'It can now appear when you read']);
     const sparks = el('div',{class:'lv-sparks'}); for (let i = 0; i < 30; i++) sparks.append(el('i',{style:`left:${(i * 41) % 100}%;animation-delay:-${(i * .37).toFixed(2)}s;animation-duration:${4 + (i % 4)}s`}));
     const crest = el('div',{class:'lv-crest', html: rankCrestSVG(Math.max(1, level - 1), col)});
     const list = el('div',{class:'lv-rewards'});
