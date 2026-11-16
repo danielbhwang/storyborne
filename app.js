@@ -1228,7 +1228,7 @@ function screenHome(msg){
       book ? el('div',{class:'card next-card series-card'},
         el('div',{class:'series-tag'},'📚 Chapter Books'), COUNTS_TAG(),
         el('h2',{}, book.emoji + ' ' + book.title),
-        (() => { const n = book.chapters.length, c = Math.min(bs.ch, n - 1); return el('p',{}, bs.ch >= n ? `Finished all ${n} chapters! 🎉 Read it again or pick a new book.` : `Chapter ${c + 1} of ${n}: ${book.chapters[c].title}`); })(),
+        (() => { const n = book.chapters.length, c = Math.max(0, Math.min(bs.ch, n - 1)), ch = book.chapters[c] || {}; return el('p',{}, !n ? 'New chapters coming soon!' : bs.ch >= n ? `Finished all ${n} chapters! 🎉 Read it again or pick a new book.` : `Chapter ${c + 1} of ${n}: ${ch.title || ''}`); })(),
         el('div',{class:'chapter-dots', style:'margin:-8px 0 14px'}, ...book.chapters.map((_, i) => el('span',{class:'dot' + (i < bs.ch ? ' on' : '')}))),
         el('div',{class:'row'},
           el('button',{class:'btn big', onclick:()=>{ beep('tap'); startChapter(book, bs.ch >= book.chapters.length ? 0 : bs.ch); }}, bs.ch >= book.chapters.length ? '🔁 Read again' : bs.ch ? '▶ Keep reading' : '▶ Start'),
@@ -1453,10 +1453,10 @@ const BOOKS = BOOK_DEFS.map(b => Object.assign({}, b, {
 const bookState = id => { K.books = K.books || {}; return K.books[id] || (K.books[id] = { ch:0, finished:0 }); };
 const bookOpen = b => b.from <= K.level + 1;
 function currentBook(){
-  const open = BOOKS.filter(bookOpen);
+  const open = BOOKS.filter(b => bookOpen(b) && (b.chapters || []).length);   // a book with no chapters at her level is not shown
   const atRank = b => b.from <= K.level && K.level <= b.from + 1;
   const done = b => bookState(b.id).finished || bookState(b.id).ch >= b.chapters.length;
-  return BOOKS.find(b => b.id === K.currentBook && bookOpen(b) && !done(b))   // a finished book never stays "current"
+  return open.find(b => b.id === K.currentBook && !done(b))   // a finished book never stays "current"
     || open.filter(b => b.featured && !bookState(b.id).finished).sort((x, y) => y.from - x.from)[0] // the newest featured book comes up next
     || open.find(b => bookState(b.id).ch > 0 && !done(b))
     || open.find(b => atRank(b) && !bookState(b.id).finished)
@@ -1465,6 +1465,8 @@ function currentBook(){
 }
 function startChapter(book, i){
   K.currentBook = book.id; save();
+  if (!book.chapters[i]) i = 0;
+  if (!book.chapters[i]) return screenBookshelf();   // nothing to read in this book yet
   startQuietRead(book.chapters[i], { storyKey:'book_' + book.id, book, chapterIndex:i });
 }
 function screenBookshelf(){

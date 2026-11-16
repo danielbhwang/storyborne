@@ -2195,3 +2195,7 @@ body.zoom-lock .float-back{ display:none; }
 html.vista-plaza #epic-bg{ background:#f6c48a url(plaza_vista.webp) center 35%/cover no-repeat; }
 html.vista-plaza #epic-bg > svg, html.vista-plaza #epic-bg .tod-tint{ opacity:0; }
 html.vista-plaza #epic-bg .eb-shade{ opacity:.35; }
+/* Safari only paints gradient text inside the element's box: "Storyborne" was wider than the logo box, so the
+   last letters showed only their outline. The title now sizes its own box to the word and shrinks to fit. */
+.ts-title{ display:inline-block; white-space:nowrap; padding:0 .08em .06em; font-size:clamp(34px, min(5.4vw, 9.5vh), 90px); }
+.ts-logo{ width:auto; min-width:min(46vw,560px); }
