@@ -2199,3 +2199,17 @@ html.vista-plaza #epic-bg .eb-shade{ opacity:.35; }
    last letters showed only their outline. The title now sizes its own box to the word and shrinks to fit. */
 .ts-title{ display:inline-block; white-space:nowrap; padding:0 .08em .06em; font-size:clamp(34px, min(5.4vw, 9.5vh), 90px); }
 .ts-logo{ width:auto; min-width:min(46vw,560px); }
+/* short parts */
+.part-bar{ display:flex; align-items:center; gap:12px; justify-content:center; margin:0 0 10px; font-size:17px; }
+.part-dots{ display:inline-flex; gap:6px; }
+.part-dots i{ width:26px; height:10px; border-radius:6px; background:rgba(0,0,0,.14); display:block; }
+.part-dots i.done{ background:#22c55e; } .part-dots i.now{ background:#f59e0b; }
+.page-card{ position:relative; }
+.page-card .part-bar{ position:absolute; top:12px; left:0; right:0; margin:0; white-space:nowrap; }
+.page-card:has(.part-bar){ padding-top:52px; }
+
+/* phone: the floating Grown-ups button must not sit on the kid's buttons */
+@media (max-width:600px){
+  body:not(.parent) .gear{ font-size:12px; padding:5px 9px; right:calc(8px + env(safe-area-inset-right)); bottom:calc(8px + env(safe-area-inset-bottom)); }
+  body:not(.parent) .screen{ padding-bottom:calc(64px + env(safe-area-inset-bottom)); }
+}

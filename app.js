@@ -357,7 +357,7 @@ function migrateDragons(k){
   k.collection = have; k.dragonsV2 = 1;
 }
 function setKid(k){
-  kid = k; K = DB.kids[k]; TK = trackOf(k); T = TRACKS[TK]; if (K) migrateDragons(K); if (k !== 'dev') DB.lastKid = k; save();
+  kid = k; K = DB.kids[k]; TK = trackOf(k); T = TRACKS[TK]; if (K){ migrateDragons(K); if (T && K.level > T.levels.length) K.level = T.levels.length; }   // never past the last rank (a bad/merged save once said 13) if (k !== 'dev') DB.lastKid = k; save();
   document.body.className = 'theme-' + TK + (k === 'dev' ? ' wizard-mode' : '');
 }
 function levelDef(n){ return T.levels[Math.min(Math.max(n,1), T.levels.length) - 1]; }
@@ -430,6 +430,7 @@ function isRegression(remote, local){
 const stableStr = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.keys(x).sort().reduce((o, kk) => (o[kk] = x[kk], o), {}) : x);
 const uniq = (...lists) => [...new Set([].concat(...lists.map(l => l || [])))];
 function mergeKid(local, remote, remoteNewer){
+  try { migrateDragons(local); migrateDragons(remote); } catch(e){}   // both copies speak 'dragons' before they're combined
   const N = remoteNewer ? remote : local, O = remoteNewer ? local : remote; // newer copy, older copy
   const m = JSON.parse(JSON.stringify(Object.assign({}, O, N)));
   // level: keep the highest, unless the lower copy was lowered on purpose (grown-up or level-down) after the other's last read
@@ -451,12 +452,18 @@ function mergeKid(local, remote, remoteNewer){
   if (local.gear || remote.gear){ const owned = {}; [local.gear, remote.gear].forEach(g => Object.entries((g && g.owned) || {}).forEach(([set, sl]) => owned[set] = uniq(owned[set], sl)));
     m.gear = { owned, eq: Object.assign({}, ((O.gear) || {}).eq, ((N.gear) || {}).eq) }; }
   const lw = local.world, rw = remote.world;
-  if (lw || rw){ const pick = !lw ? rw : !rw ? lw : ((lw.items || []).length === (rw.items || []).length ? N.world : ((lw.items || []).length > (rw.items || []).length ? lw : rw)) || lw || rw;
+  if (lw || rw){ const pick = !lw ? rw : !rw ? lw : (lw.at || rw.at) ? ((lw.at || 0) >= (rw.at || 0) ? lw : rw)   // the latest edit wins, so removed things stay removed
+      : ((lw.items || []).length === (rw.items || []).length ? N.world : ((lw.items || []).length > (rw.items || []).length ? lw : rw)) || lw || rw;
     m.world = Object.assign({}, pick, { themes: uniq((lw || {}).themes, (rw || {}).themes) }); }
   const maxMap = f => { if (!local[f] && !remote[f]) return; const o = Object.assign({}, remote[f], local[f]); Object.keys(o).forEach(k => o[k] = Math.max((local[f] || {})[k] || 0, (remote[f] || {})[k] || 0)); m[f] = o; };
   maxMap('treasures'); maxMap('storyIdx'); maxMap('weapons'); maxMap('mounts');
   if (local.books || remote.books){ const b = {}; Object.keys(Object.assign({}, local.books, remote.books)).forEach(id => { const x = (local.books || {})[id] || {}, y = (remote.books || {})[id] || {};
     b[id] = (y.finished || 0) > (x.finished || 0) || ((y.finished || 0) === (x.finished || 0) && (y.ch || 0) > (x.ch || 0)) ? y : x; }); m.books = b; }
+  // things a kid earns are never lost to a sync: union them (relics owned, bosses beaten, real books logged, refunds)
+  if (local.relics || remote.relics) m.relics = Object.assign({}, (O.relics || {}), (N.relics || {}), { own: uniq((local.relics || {}).own, (remote.relics || {}).own) });
+  if (local.bossesBeaten || remote.bossesBeaten) m.bossesBeaten = uniq(local.bossesBeaten, remote.bossesBeaten);
+  if (local.realBooks || remote.realBooks){ const seenB = new Set(); m.realBooks = [].concat(N.realBooks || [], O.realBooks || []).filter(b => { const id = (b.title || '') + '|' + (b.date || ''); if (seenB.has(id)) return false; seenB.add(id); return true; }); }
+  if (local.refunds || remote.refunds) m.refunds = Object.assign({}, remote.refunds, local.refunds);
   m.words = Object.assign({}, O.words, N.words); m.missed = Object.assign({}, O.missed, N.missed);
   if ((local.streak || {}).count || (remote.streak || {}).count) m.streak = ((local.streak || {}).last || '') >= ((remote.streak || {}).last || '') ? local.streak : remote.streak;
   if (local.path || remote.path){ const p = Object.assign({}, O.path, N.path); p.done = Object.assign({}, (O.path || {}).done, (N.path || {}).done); p.placed = !!((local.path || {}).placed || (remote.path || {}).placed); m.path = p; }
@@ -523,6 +530,7 @@ function cloudApply(key, snap){
     let merged = !local || !kidScore(local) || (remote.resetAt || 0) > (local.resetAt || 0) ? remote : mergeKid(local, remote, d.ts > (base || 0));
     merged = Object.assign(freshKid(), merged);
     if (local && kidScore(local) > kidScore(merged)){ DB.backup = DB.backup || {}; DB.backup[key] = { at: Date.now(), level: local.level, json: JSON.stringify(local) }; }
+    { const mx = TRACKS[trackOf(key)] && TRACKS[trackOf(key)].levels.length; if (mx && merged.level > mx) merged.level = mx; }
     DB.kids[key] = merged; if (kid === key) K = merged;
     setCloudTs(key, d.ts);
     let remoteFull; try { remoteFull = Object.assign(freshKid(), remote); } catch(e){ remoteFull = remote; }
@@ -1030,6 +1038,22 @@ function confetti(n=70){
     document.body.append(c); setTimeout(()=>c.remove(), 5000);
   }
 }
+/* Grown-up check that keeps the current screen: a PIN pad in a pop-up, then unlocked for 10 minutes */
+let guUntil = 0;
+function grownUp(fn){
+  if (Date.now() < guUntil || isDev()) return fn();
+  let entered = '';
+  const dots = el('div',{class:'pin-dots'},'○○○○'), msg = el('p',{class:'muted'},'Grown-up PIN');
+  const ov = el('div',{class:'overlay'}), pad = el('div',{class:'pad'});
+  const close = () => ov.remove();
+  ['1','2','3','4','5','6','7','8','9','✕','0','⌫'].forEach(k => pad.append(el('button',{onclick:()=>{
+    if (k === '✕') return close();
+    if (k === '⌫') entered = entered.slice(0, -1); else if (entered.length < 4) entered += k;
+    dots.textContent = '●'.repeat(entered.length) + '○'.repeat(4 - entered.length);
+    if (entered.length === 4){ if (entered === DB.pin){ guUntil = Date.now() + 600000; close(); fn(); } else { msg.textContent = 'Not quite. Try again.'; entered = ''; setTimeout(()=>dots.textContent='○○○○', 300); } }
+  }}, k)));
+  ov.append(el('div',{class:'modal'}, el('h2',{},'🔒 Grown-ups only'), msg, dots, pad)); document.body.append(ov);
+}
 function modal(content, buttons){
   return new Promise(res => {
     const ov = el('div',{class:'overlay'});
@@ -1474,6 +1498,7 @@ function screenBookshelf(){
   const shelf = el('div',{class:'bookshelf'}, ...BOOKS.map(b => {
     const st = bookState(b.id), open = bookOpen(b), n = b.chapters.length;
     if (!open) return el('div',{class:'book-card locked'}, el('div',{class:'book-cover'}, '🔒'), el('h3',{}, b.title), el('p',{class:'muted'}, `Opens at Rank ${b.from - 1}`));
+    if (st.ch >= n){ st.ch = 0; st.finished = st.finished || 1; }   // bookmark past the end = finished book
     return el('div',{class:'book-card'},
       el('div',{class:'book-cover'}, b.emoji),
       el('h3',{}, b.title),
@@ -1760,6 +1785,23 @@ function storyPages(text){
   text.split(/\n\s*\n/).forEach((p, pi) => tokensOf(p.trim()).forEach((t, i) => tokens.push(i === 0 && pi > 0 ? Object.assign(t, { para:true }) : t)));
   return [{ tokens }];
 }
+/* Short parts: a long story is read in 2-5 parts of about 50 words, cut at sentence ends, with a small win after each.
+   The words stay as hard; only the stretch gets shorter. Younger track only (and any kid a grown-up switches on later). */
+function partWords(){ return (K && K.partWords) || (TK === 'son' ? 50 : 0); }
+function storyParts(text){
+  const all = storyPages(text), want = partWords(), tokens = all[0].tokens, n = tokens.length;
+  if (!want || n < want * 1.5) return all;
+  const parts = Math.min(5, Math.max(2, Math.round(n / want))), target = n / parts, pages = [];
+  let cur = [];
+  tokens.forEach((t, i) => {
+    cur.push(t);
+    const endOfSentence = /[.!?]["”’']?$/.test(t.disp), left = n - i - 1;
+    if (endOfSentence && pages.length < parts - 1 && cur.length >= target * .92 && left >= target * .5){ pages.push({ tokens: cur }); cur = []; }
+  });
+  if (cur.length) pages.push({ tokens: cur });
+  pages.forEach(p => { if (p.tokens[0]) delete p.tokens[0].para; });
+  return pages.length > 1 ? pages.map((p, i) => Object.assign(p, { part: i + 1, parts: pages.length })) : all;
+}
 function buildActivity(levelN, mode){
   const L = levelDef(levelN);
   const wantsStory = L.kind === 'story' || (mode && seriesAt(levelN).includes(mode));
@@ -1772,7 +1814,7 @@ function buildActivity(levelN, mode){
     return { kind:'words', level:levelN, title:L.title, pages: items.map(w => ({ single:true, tokens:[{disp:w, n:norm(w)}] })) };
   }
   const { story, index, key, series } = storyFor(levelN, mode);
-  const pages = storyPages(story.text);
+  const pages = storyParts(story.text);
   return { kind:'story', level:levelN, title:story.title, emoji:story.emoji, story, storyIndex:index, storyKey:key, series, pages };
 }
 function startActivity(series){
@@ -1867,12 +1909,13 @@ function renderReader(){
     single ? (p.letter ? 'Tap the mic and say the letter\'s sound!' : 'Tap the mic and read the word!') : 'Tap the 🎤 and read out loud!');
   const heard = el('div',{class:'heard', id:'heard'});
   const micBtn = manual ? null : el('button',{class:'mic', id:'mic', onclick:toggleMic, 'aria-label':'microphone'},'🎤');
-  const nextBtn = el('button',{class:'btn ' + (manual ? 'green' : 'blue'), id:'next', onclick:()=>nextPage(true)}, isLast ? 'Done ✓' : 'Next ▶');
+  const nextBtn = el('button',{class:'btn ' + (manual ? 'green' : 'blue'), id:'next', onclick:()=>nextPage(true)}, isLast ? 'Done ✓' : p.parts ? `Part ${p.part} done ▶` : 'Next ▶');
   const checks = single && !manual ? el('div',{class:'grownup-checks'},
-      el('button',{class:'btn small green', onclick:()=>gradeSingle(true)},'✓ Grown-up: right'),
+      el('button',{class:'btn small green', onclick:()=>grownUp(()=>gradeSingle(true))},'✓ Grown-up: right'),
       el('button',{class:'btn small red', onclick:()=>gradeSingle(false)},'✗ Missed')) : null;
   const pageCard = el('div',{class:'card page-card'},
     manual ? el('span',{class:'mode-tag'},'grown-up scoring') : null,
+    p.parts ? el('div',{class:'part-bar'}, el('b',{}, `Part ${p.part} of ${p.parts}`), el('span',{class:'part-dots'}, ...Array.from({length:p.parts}, (_, i) => el('i',{class: i < p.part - 1 ? 'done' : i === p.part - 1 ? 'now' : ''}))), el('span',{class:'muted'}, `${p.tokens.length} words`)) : null,
     el('div',{}, passage, p.pic ? el('div',{class:'keypic'}, p.pic) : null,
       p.blend ? el('div',{class:'blend-help'}, tileRow(p.tokens[0].disp, true), el('div',{class:'muted center'},'Tap each sound, then read the whole word!')) : null,
       p.heart ? el('div',{class:'heart-help'}, '❤️ Heart word! ', heartWordNode(p.tokens[0].disp), ' — ', p.heart.tip) : null));
@@ -1897,7 +1940,7 @@ function pageGate(btn, p, off){
   const words = p.tokens.filter(t => !t.skip).length;
   if (off || !run || run.act.quiet || run.act.kind === 'placement' || words < 4) return;
   // the iPad mic misses words, so the page opens on TIME (about as long as reading it takes), or earlier if the mic heard a third of it
-  const label = btn.textContent, son = TK === 'son', need = .33, needMs = words * (son ? 450 : 330), t0 = Date.now();
+  const label = btn.textContent, son = TK === 'son', need = .33, needMs = words * (p.parts ? 360 : son ? 450 : 330), t0 = Date.now();
   const open = () => { if (!run || useManual()) return true;
     const ok = p.status.filter(x => x === 'ok').length / words;
     return ok >= need || Date.now() - t0 >= needMs; };
@@ -2083,6 +2126,9 @@ function nextPage(manualPress, keepMic){
     if (recogOn) stopRecog();
     run.act.pages = run.act.pages.slice(0, run.page + 1);   // stop at the first probe that's too hard
     return finishReading();
+  }
+  if (!isLastPage && p.parts && manualPress !== 'quiet'){   // a part finished: a star for the reading just done, then straight on
+    K.stars += 1; save(); beep('star'); try { confetti(18); burst('Part ' + p.part + ' done! +1 ⭐'); } catch(e){}
   }
   if (!isLastPage){ run.page++; renderReader(); if (recogOn){ updateMicBtn(); setHint('I\'m still listening… keep reading! 👂'); paintWords(); } return; }
   finishReading();
@@ -2906,10 +2952,13 @@ function avatarNode(size=150, override){
   return d;
 }
 function rarity(price, lvl){ return lvl || price >= 60 ? 'legendary' : price >= 40 ? 'epic' : price >= 25 ? 'rare' : price >= 15 ? 'uncommon' : 'common'; }
-function balance(){ return isDev() ? 999999 : (K.stars||0) - (K.spent||0); }
+function refundTotal(k, cur){ return Object.values((k.refunds || {})).reduce((t, r) => t + ((r.c || 's') === cur ? r.n : 0), 0); }
+function refund(k, n, cur, why){ return addRefund(k, n, cur, why); }
+function addRefund(k, n, cur, why){ k.refunds = k.refunds || {}; k.refunds[why + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)] = { n, c: cur }; }
+function balance(){ return isDev() ? 999999 : (K.stars||0) - (K.spent||0) + refundTotal(K, 's'); }
 /* 💫 Cosmic Power: rare second currency for pets and legendary things.
    Collected only for great reading moments (see addCosmic calls). */
-function cosmicBal(){ return isDev() ? 99999 : (K.cosmic||0) - (K.cosmicSpent||0); }
+function cosmicBal(){ return isDev() ? 99999 : (K.cosmic||0) - (K.cosmicSpent||0) + refundTotal(K, 'c'); }
 function addCosmic(n, why){
   if (!n) return; K.cosmic = (K.cosmic||0) + n; save();
   const t = el('div',{class:'cosmic-toast'}, el('span',{class:'ct-e'},'💫'), el('div',{}, el('b',{}, `+${n} Cosmic Power`), el('small',{}, why || '')));
@@ -2994,7 +3043,7 @@ function screenShop(){
       const cost = costOf(slot, price, lvl);
       const can = canPay(cost);
       const action = owned
-        ? el('button',{class:'btn small ' + (on?'gray':'green'), onclick:()=>{ if (on) delete K.avatar.equipped[slot]; else K.avatar.equipped[slot] = id; save(); beep('tap'); screenShop(); }}, on ? 'Take off' : 'Wear')
+        ? el('button',{class:'btn small ' + (on?'gray':'green'), onclick:()=>{ if (on) K.avatar.equipped[slot] = null; else K.avatar.equipped[slot] = id; save(); beep('tap'); screenShop(); }}, on ? 'Take off' : 'Wear')
         : el('button',{class:'btn small ' + (can?'':'gray'), onclick:async()=>{
             if (!can){ say(cost.cur === 'cosmic' ? 'You need more Cosmic Power! Get it from perfect stories, leveling up, and new skills.' : 'Keep reading to earn more stars!'); return; }
             pay(cost); K.avatar.owned.push(id); K.avatar.equipped[slot] = id; save();
@@ -4015,7 +4064,7 @@ function worldOf(k){
   D.world = Object.assign({ theme:'meadow', themes:['meadow'], items:[], nextId:1 }, D.world || {});
   const gone = (D.world.themes || []).filter(t => RETIRED_THEMES[t]);
   if (gone.length && !isDev()){ gone.forEach(t => { const r = RETIRED_THEMES[t];
-      if (r.stars) D.spent = Math.max(0, (D.spent || 0) - r.stars); else D.cosmicSpent = Math.max(0, (D.cosmicSpent || 0) - r.cosmic); });
+      if (r.stars) refund(D, r.stars, 's', 'theme_' + t); else refund(D, r.cosmic, 'c', 'theme_' + t); });
     D.world.themes = D.world.themes.filter(t => !RETIRED_THEMES[t]); if (!WORLD_THEMES[D.world.theme]) D.world.theme = 'meadow'; save(); }
   return D.world;
 }
@@ -4083,14 +4132,15 @@ function screenWorld(visitKid){
     tools.classList.toggle('hidden', !selected());
     swingBtn.classList.toggle('hidden', !(selected() && selected().k === 'treeswing'));
   };
-  const act = fn => () => { const it = selected(); if (!it) return; fn(it); save(); const n = nodes[it.id];
+  const act = fn => () => { const it = selected(); if (!it) return; fn(it); (W.at = Date.now(), save()); const n = nodes[it.id];
     if (n){ n.style.fontSize = Math.round(64*it.s)+'px'; n.style.transform = it.f ? 'scaleX(-1)' : ''; n.style.zIndex = it.z || 1; } };
   tools.append(
-    el('button',{class:'btn small', onclick:act(it => it.s = Math.min(4, +(it.s + 0.25).toFixed(2)))},'➕ Bigger'),
+    el('button',{class:'btn small', onclick:act(it => it.s = Math.min(6, +(it.s + 0.25).toFixed(2)))},'➕ Bigger'),
     el('button',{class:'btn small', onclick:act(it => it.s = Math.max(0.5, +(it.s - 0.25).toFixed(2)))},'➖ Smaller'),
     el('button',{class:'btn small', onclick:act(it => it.f = !it.f)},'↔️ Flip'),
     swingBtn,
-    el('button',{class:'btn small', onclick:act(it => it.z = Math.max(...W.items.map(i => i.z || 1)) + 1)},'⬆️ Front'),
+    el('button',{class:'btn small', onclick:act(it => { const o = W.items.filter(i => i !== it).sort((a, b) => (a.z || 1) - (b.z || 1)); o.push(it); o.forEach((i, k) => i.z = k + 1); W.items.forEach(i => nodes[i.id] && (nodes[i.id].style.zIndex = i.z)); })},'⬆️ Front'),
+    el('button',{class:'btn small', onclick:act(it => { const o = W.items.filter(i => i !== it).sort((a, b) => (a.z || 1) - (b.z || 1)); o.unshift(it); o.forEach((i, k) => i.z = k + 1); W.items.forEach(i => nodes[i.id] && (nodes[i.id].style.zIndex = i.z)); })},'⬇️ Behind'),
     el('button',{class:'btn small red', onclick:async()=>{ const it = selected(); if (!it) return;
       // removing gives back only half of what the item cost; legendary and mythic items go back to the vault instead
       const def = WORLD_BY_ID[it.k], vault = def && (def[0] === 'legendary' || def[0] === 'mythic');
@@ -4101,8 +4151,8 @@ function screenWorld(visitKid){
           el('p',{}, `You paid ⭐ ${price}. If you remove it, you only get ⭐ ${refund} back.`)), [['Keep it','green',false],[`Remove (+${refund} ⭐)`,'red',true]]);
         if (!ok) return;
       }
-      W.items = W.items.filter(i => i !== it); K.spent = Math.max(0, (K.spent||0) - refund);
-      nodes[it.id].remove(); delete nodes[it.id]; worldSel = null; save(); refreshSel(); bal.textContent = '⭐ ' + balance();
+      W.items = W.items.filter(i => i !== it); if (refund) addRefund(K, refund, 's', 'world' + it.id);
+      nodes[it.id].remove(); delete nodes[it.id]; worldSel = null; (W.at = Date.now(), save()); refreshSel(); bal.textContent = '⭐ ' + balance();
       if (refund) say(`You got ${refund} stars back.`); }},'🗑️ Remove'));
   function attachDrag(n, it){
     n.addEventListener('pointerdown', ev => {
@@ -4111,7 +4161,7 @@ function screenWorld(visitKid){
       n.setPointerCapture(ev.pointerId); n.classList.add('drag');
       const move = e => { it.x = Math.max(-20, Math.min(WORLD_W - 40, ox + (e.clientX - sx) / zw.z)); it.y = Math.max(-20, Math.min(WORLD_H - 40, oy + (e.clientY - sy) / zw.z));
         n.style.left = it.x + 'px'; n.style.top = it.y + 'px'; };
-      const up = () => { n.removeEventListener('pointermove', move); n.removeEventListener('pointerup', up); n.removeEventListener('pointercancel', up); n.classList.remove('drag'); save(); };
+      const up = () => { n.removeEventListener('pointermove', move); n.removeEventListener('pointerup', up); n.removeEventListener('pointercancel', up); n.classList.remove('drag'); (W.at = Date.now(), save()); };
       n.addEventListener('pointermove', move); n.addEventListener('pointerup', up); n.addEventListener('pointercancel', up);
     });
   }
@@ -4130,8 +4180,8 @@ function screenWorld(visitKid){
       const inWorld = id => W.items.some(i => i.k === id);
       const putOut = (row) => {
         const sl = scroller.scrollLeft / zw.z;
-        const it = { id: W.nextId++, k:row[1], e:row[2], x: Math.round(sl + 300 + Math.random()*300), y: GROUND_Y - 150, s:1.8, f:false, z: W.items.length + 2 };
-        W.items.push(it); worldSel = it.id; save(); place(it); refreshSel();
+        const it = { id: W.nextId++, k:row[1], e:row[2], x: Math.round(sl + 300 + Math.random()*300), y: GROUND_Y - 150, s:1.8, f:false, z: Math.max(0, ...W.items.map(i => i.z || 1)) + 1 };
+        W.items.push(it); worldSel = it.id; (W.at = Date.now(), save()); place(it); refreshSel();
         const n = nodes[it.id]; if (n){ n.classList.add('summon'); setTimeout(() => n.classList.remove('summon'), 1600); }
         confetti(90); beep('level'); burst('WOW!'); drawPalette();
       };
@@ -4141,7 +4191,7 @@ function screenWorld(visitKid){
           if (!open){ say(`${l.name} is locked. ${label}. You have ${have} of ${need}.`); return; }
           if (owned){ if (inWorld(l.id)) { say(`Your ${l.name} is already in your world!`); return; } putOut(row); return; }
           if (cosmicBal() < legendCosmic(l)){ say(`You need ${legendCosmic(l)} Cosmic Power for the ${l.name}. You have ${cosmicBal()}. Keep reading!`); beep('bad'); return; }
-          K.cosmicSpent = (K.cosmicSpent||0) + legendCosmic(l); K.legendOwned = (K.legendOwned || []).concat(l.id); save(); bal.textContent = '⭐ ' + balance() + '   💫 ' + cosmicBal();
+          K.cosmicSpent = (K.cosmicSpent||0) + legendCosmic(l); K.legendOwned = (K.legendOwned || []).concat(l.id); (W.at = Date.now(), save()); bal.textContent = '⭐ ' + balance() + '   💫 ' + cosmicBal();
           await epicReveal(l, 'legendary', 'LEGENDARY SUMMONED!', 'It\'s yours forever. Watch it come alive in your world!');
           putOut(row); checkBadges(); }},
           el('span',{class:'chip-e' + (open ? '' : ' silhouette'), html: TOWN_SVG[l.id] || l.e}),
@@ -4167,7 +4217,7 @@ function screenWorld(visitKid){
         const cost = t.cosmic ? { cur:'cosmic', amt:t.cosmic } : { cur:'star', amt:t.price };
         palette.append(el('button',{class:'world-chip theme-chip' + (on?' on':'') + (t.cosmic && !owned ? ' cosmic-place' : ''), style:`background:${t.sky}`, onclick:()=>{
           if (!owned){ if (!canPay(cost)){ say(cost.cur === 'cosmic' ? `${t.name} costs ${cost.amt} Cosmic Power. Keep reading to collect more!` : 'Keep reading to earn more stars!'); beep('bad'); return; } pay(cost); W.themes.push(id); beep('level'); confetti(40); say(`Welcome to ${t.name}!`); }
-          W.theme = id; save(); screenWorld(); }},
+          W.theme = id; (W.at = Date.now(), save()); screenWorld(); }},
           el('span',{class:'chip-name'}, t.name), el('span',{class:'chip-price' + (cost.cur === 'cosmic' && !owned ? ' cosmic' : '')}, owned ? (on ? '✓ Here' : 'Go!') : costLabel(cost))));
       });
       return;
@@ -4180,8 +4230,8 @@ function screenWorld(visitKid){
         palette.append(el('button',{class:'world-chip rar-' + t.r + (left > 0 ? '' : ' locked'), onclick:()=>{
           if (left <= 0){ say(`All your ${t.name}s are already in your world!`); return; }
           const sl = scroller.scrollLeft / zw.z;
-          const it = { id: W.nextId++, k:t.id, e:t.e, x: Math.round(sl + 300 + Math.random()*300), y: GROUND_Y - 90, s: t.r === 'mythic' ? 1.8 : t.r === 'legendary' ? 1.5 : 1.1, f:false, z: W.items.length + 2 };
-          W.items.push(it); worldSel = it.id; save(); place(it); refreshSel(); beep('star'); drawPalette(); }},
+          const it = { id: W.nextId++, k:t.id, e:t.e, x: Math.round(sl + 300 + Math.random()*300), y: GROUND_Y - 90, s: t.r === 'mythic' ? 1.8 : t.r === 'legendary' ? 1.5 : 1.1, f:false, z: Math.max(0, ...W.items.map(i => i.z || 1)) + 1 };
+          W.items.push(it); worldSel = it.id; (W.at = Date.now(), save()); place(it); refreshSel(); beep('star'); drawPalette(); }},
           el('span',{class:'chip-e', html: trPic(t)}), el('span',{class:'chip-name'}, t.name), el('span',{class:'chip-price'}, `Lv ${t.ilvl} · ${left}/${K.treasures[t.id]}`)));
       });
       return;
@@ -4195,8 +4245,8 @@ function screenWorld(visitKid){
         if (balance() < price){ say('Keep reading to earn more stars!'); beep('bad'); return; }
         K.spent = (K.spent||0) + price;
         const sl = scroller.scrollLeft / zw.z;
-        const it = { id: W.nextId++, k:id, e, x: Math.round(sl + 300 + Math.random()*300), y: GROUND_Y - 80 - Math.round(Math.random()*60), s: /^inf_/.test(id) ? 1.9 : cat==='home' ? 1.6 : cat==='ride' ? 1.2 : 1, f:false, z: W.items.length + 2 };
-        W.items.push(it); worldSel = it.id; save(); place(it); refreshSel(); beep('star'); bal.textContent = '⭐ ' + balance() + '   💫 ' + cosmicBal();
+        const it = { id: W.nextId++, k:id, e, x: Math.round(sl + 300 + Math.random()*300), y: GROUND_Y - 80 - Math.round(Math.random()*60), s: /^inf_/.test(id) ? 1.9 : cat==='home' ? 1.6 : cat==='ride' ? 1.2 : 1, f:false, z: Math.max(0, ...W.items.map(i => i.z || 1)) + 1 };
+        W.items.push(it); worldSel = it.id; (W.at = Date.now(), save()); place(it); refreshSel(); beep('star'); bal.textContent = '⭐ ' + balance() + '   💫 ' + cosmicBal();
         checkBadges(); }},
         el('span',{class:'chip-e', html: TOWN_SVG[id] || e}), el('span',{class:'chip-name'}, name), el('span',{class:'chip-price'}, locked ? `🔒 Lv ${lvl}` : price ? '⭐ ' + price : 'Free')));
     });
@@ -5206,7 +5256,7 @@ function retellBook(book){
       out, count,
       el('div',{class:'row center', style:'margin-top:14px'},
         useManual() ? null : el('button',{class:'btn big green', onclick:()=>finish(false)},'✅ Done telling'),
-        el('button',{class:'btn small gray', onclick:()=>finish(true)},'✓ Grown-up heard it')))));
+        el('button',{class:'btn small gray', onclick:()=>grownUp(()=>finish(true))},'✓ Grown-up heard it')))));
   say('Tell me about the book! Who was in it, and what happened?');
 }
 
@@ -5977,8 +6027,8 @@ function screenArmory(){
         grid,
         el('div',{class:'card', style:'margin-top:16px'}, el('h2',{style:'margin-top:0'},'Gear sets'),
           el('p',{class:'muted'},'Wear all 8 pieces of one set to unlock its glowing set bonus and title!'), sets)))));
+  onCloudUpdate = () => { if (!document.querySelector('.overlay')) screenArmory(); };   // a sync replaced the save: redraw so purchases go to the new copy
 }
-
 
 /* ---------- Hall of Heroes: profile showcase ---------- */
 function screenHeroHall(){
@@ -6658,7 +6708,7 @@ function questAloud(q){
       rec.onerror = () => { status.textContent = 'I could not hear you. Try again, or a grown-up can tap ✓.'; };
       rec.start(); mic.classList.add('on'); mic.textContent = '⏹'; status.textContent = 'Listening…'; }}, '🎤');
     area.replaceChildren(el('div',{class:'q-step'}, `Sentence ${i + 1} of ${sents.length}`), line,
-      el('div',{class:'row center'}, useManual() ? null : mic, el('button',{class:'btn blue', onclick:()=>say(s)}, '🔊 Hear it'), el('button',{class:'btn small gray', onclick:done}, '✓ Grown-up heard it')), status);
+      el('div',{class:'row center'}, useManual() ? null : mic, el('button',{class:'btn blue', onclick:()=>say(s)}, '🔊 Hear it'), el('button',{class:'btn small gray', onclick:()=>grownUp(done)}, '✓ Grown-up heard it')), status);
   };
   show(questFrame(q, area, 'Read this sentence out loud to me!')); round();
 }
@@ -7327,14 +7377,16 @@ function progressReport(id, days = 7){
   const breakdown = typeList.slice().sort((a, b) => a.p - b.p).map(x => `${x.t}: ${x.r}/${x.n} (${x.p}%)${focus.includes(x.t) ? '  🎯 extra practice' : ''}`);
   const good = [], work = [];
   typeList.filter(x => x.n >= 3 && x.p >= 80).sort((a, b) => b.p - a.p).forEach(x => good.push(`${x.t}: ${x.r} of ${x.n} right (${x.p}%)`));
-  typeList.filter(x => x.n >= 2 && x.p < 65).sort((a, b) => a.p - b.p).forEach(x => work.push(`${x.t}: ${x.r} of ${x.n} right (${x.p}%)`));
+  if (!reads.length && !recent.some(x => x.book)) work.push('No stories read this week');
+  typeList.filter(x => x.n >= 3 && x.p < 75).sort((a, b) => a.p - b.p).forEach(x => work.push(`${x.t}: ${x.r} of ${x.n} right (${x.p}%)`));
   if (accAvg != null) (accAvg >= 92 ? good : work).push(`Reading out loud: ${accAvg}% of words read right`);
   const before = (k.sessions || []).find(x => new Date(x.date) < since), levelUps = before ? k.level - before.level : 0;
   if (levelUps > 0) good.push(`Moved up ${levelUps} level${levelUps > 1 ? 's' : ''} this week (now ${TRACK_INFO[tr].word} ${k.level})`);
   const books = recent.filter(x => x.book).length; if (books) good.push(`Read ${books} chapter${books > 1 ? 's' : ''} of chapter books`);
   const spell = recent.filter(x => x.mode === 'spelling'); if (spell.length){ const r = spell.reduce((t, x) => t + (x.correct || 0), 0), n = spell.reduce((t, x) => t + (x.total || 0), 0); if (n) (r / n >= .8 ? good : work).push(`Spelling: ${r} of ${n} words right`); }
   const missed = {}; recent.forEach(x => (x.missed || []).forEach(w => missed[w] = (missed[w] || 0) + 1));
-  const tricky = Object.entries(missed).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([w, n]) => n > 1 ? `${w} (×${n})` : w);
+  const tricky = Object.entries(missed).filter(([w]) => w.length > 3 || k.level < 5)   // tiny words past the early levels are the mic mishearing, not the reader
+    .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([w, n]) => n > 1 ? `${w} (×${n})` : w);
   const weak = typeList.filter(x => x.n >= 2 && x.p < 65).sort((a, b) => a.p - b.p)[0];
   const TIPS = { 'Main idea': `After a story, ask ${name}: "What was that MOSTLY about, in one sentence?"`,
     "Author's purpose & message": `Ask: "Why do you think the author wrote this? What did they want us to learn?"`,
@@ -7345,15 +7397,15 @@ function progressReport(id, days = 7){
     'Word meaning': `When you hit a new word, guess its meaning together from the sentence around it.`,
     'Why & how (inference)': `Ask "why do you think they did that?" about characters in books and shows.`,
     'Story details': `Have ${name} read a little slower and use the story highlighter for important details.` };
-  const newWeak = useNew ? typeList.filter(x => x.n >= 2 && x.p < 65).sort((a, b) => a.p - b.p)[0] : null;
-  const tip = newWeak ? `${newWeak.t} is the hardest kind of question right now. ${QTYPE_HELP[newWeak.key]}` : !recent.length ? `No reading logged this week. A short story at the same time each day builds the habit.` : weak ? TIPS[weak.t] : (qAll && qRight / qAll >= .85 ? `${name} is doing great. Try a longer story or the next chapter book.` : `Keep it up. Short, daily reads beat long, rare ones.`);
+  const newWeak = useNew ? typeList.filter(x => x.n >= 3 && x.p < 75).sort((a, b) => a.p - b.p)[0] : null;
+  const tip = !reads.length && !recent.some(x => x.book) ? `No stories this week. Sit with ${name} for one short part tonight; starting is the hard bit.` : newWeak ? `${newWeak.t} is the hardest kind of question right now. ${QTYPE_HELP[newWeak.key]}` : !recent.length ? `No reading logged this week. A short story at the same time each day builds the habit.` : weak ? TIPS[weak.t] : (qAll && qRight / qAll >= .85 ? `${name} is doing great. Try a longer story or the next chapter book.` : `Keep it up. Short, daily reads beat long, rare ones.`);
   const lines = [
     `📚 ${name} (${TRACK_INFO[tr].name} · ${TRACK_INFO[tr].word} ${k.level})`,
     `This week: ${reads.length} stories, ${minutes} min, ${qAll ? `${qRight}/${qAll} questions right (${Math.round(qRight / qAll * 100)}%)` : 'no quizzes yet'}`,
     ``, `✅ Doing well:`, ...(good.length ? good.map(x => '  • ' + x) : ['  • (not enough answers yet this week)']),
     ``, `🎯 Needs practice:`, ...(work.length ? work.map(x => '  • ' + x) : ['  • Nothing stands out. Nice!']),
     ...(breakdown.length ? [``, `🧠 Question types (hardest first):`, ...breakdown.map(x => '  • ' + x),
-        focus.length ? `  The game is giving ${name} extra questions on: ${focus.join(', ')}. Other kinds stay mixed in.` : `  No weak spots, so quizzes stay evenly mixed.`] : []),
+        focus.length ? `  Extra practice right now (from ${name}'s last 12 answers of each kind, not only this week): ${focus.join(', ')}.` : `  No weak spots, so quizzes stay evenly mixed.`] : []),
     ...(tricky.length ? [``, `🔤 Tricky words: ${tricky.join(', ')}`] : []),
     ...towerReport(k, since),
     ``, `💡 Tip: ${tip}`];
@@ -8893,6 +8945,7 @@ function wbPlay(){
   const items = WB.session(lvl, W.seen, 10, boost);
   let i = 0, right = 0, earned = 0;
   const finish = () => {
+    const W = wbState();   // the save may have been replaced by a sync while playing
     const n = items.length, bonus = right === n ? 3 : right >= 8 ? 2 : 0;
     // a story is worth more than a drill: 1 ⭐ per 2 first-try answers + bonus, and only the first 2 sets each day pay out
     if (W.day !== todayStr()){ W.day = todayStr(); W.paid = 0; }
@@ -8951,7 +9004,7 @@ function wbPlay(){
   step();
 }
 
-if (navigator.webdriver) window.__sb = { getRun: () => run, expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, fairOpts: (...a) => fairOpts(...a), quizPool: (...a) => quizPool(...a), finishQuiz: (...a) => finishQuiz(...a), QTYPE: q => QTYPE(q), getDB: () => DB, GEAR_SETS, GEAR_SLOTS, bossArt, BOSSES, screenChests: () => screenChests(), run: (n, ...a) => ({ screenReport, screenTower, screenBuild, screenListen, screenPlayers, screenHome, screenArmory, screenShop: typeof screenShop === "function" ? screenShop : null, screenWorkbook, wbPlay, screenTownSquare }[n])(...a), screenTrophies: () => screenTrophies(), openChest: t => openChest(t), screenTownSquare: () => screenTownSquare(), screenWorld: () => screenWorld(), screenStables: () => screenStables(), screenChests: () => screenChests(), weaponIcon: (i, s) => weaponIcon(i, s) };
+if (navigator.webdriver) window.__sb = { getRun: () => run, storyParts, startActivity, expertQuiz, expertExtras, challengeQuiz, allTrackStories, quoteSpeakers, storyNames, chunkWord, heroSVG, mountSVG, MOUNTS, getK: () => K, fairOpts: (...a) => fairOpts(...a), quizPool: (...a) => quizPool(...a), finishQuiz: (...a) => finishQuiz(...a), QTYPE: q => QTYPE(q), getDB: () => DB, GEAR_SETS, GEAR_SLOTS, bossArt, BOSSES, screenChests: () => screenChests(), run: (n, ...a) => ({ screenReport, screenTower, screenBuild, screenListen, screenPlayers, screenHome, screenArmory, screenShop: typeof screenShop === "function" ? screenShop : null, screenWorkbook, wbPlay, screenTownSquare, screenBookshelf }[n])(...a), tracks: () => TRACKS, screenTrophies: () => screenTrophies(), openChest: t => openChest(t), screenTownSquare: () => screenTownSquare(), screenWorld: () => screenWorld(), screenStables: () => screenStables(), screenChests: () => screenChests(), weaponIcon: (i, s) => weaponIcon(i, s) };
 mountEpicBg(); setInterval(mountEpicBg, 10 * 60 * 1000);
 if (navigator.webdriver) window.__landing = () => screenFamilyLogin();
 /* ======================= STORYBORNE 2.0: adaptive curriculum UI =======================
